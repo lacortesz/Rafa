@@ -1,32 +1,9 @@
-def plot_candles_matplotlib(data, title='Candlestick Chart'):
-    import matplotlib.dates as mdates
-    from matplotlib.patches import Rectangle
-    data = data.copy()
-    data.index = pd.to_datetime(data.index)
-    fig, ax = plt.subplots(figsize=(12, 6))
-    width = 0.6
-    width2 = 0.1
-    dates = mdates.date2num(data.index.to_pydatetime())
-    for idx, (date, row) in enumerate(data.iterrows()):
-        open_, high, low, close = row['Open'], row['High'], row['Low'], row['Close']
-        color = 'green' if close >= open_ else 'red'
-        # Cuerpo de la vela
-        rect = Rectangle((dates[idx] - width/2, min(open_, close)), width, abs(close - open_), color=color, alpha=0.8)
-        ax.add_patch(rect)
-        # Mechas
-        ax.plot([dates[idx], dates[idx]], [low, high], color='black', linewidth=1)
-    ax.xaxis_date()
-    ax.set_title(title)
-    ax.set_xlabel('Fecha')
-    ax.set_ylabel('Precio')
-    fig.autofmt_xdate()
-    plt.tight_layout()
-    plt.show()
-
 import yfinance as yf
 import plotly.graph_objects as go
 import pandas as pd
 import matplotlib.pyplot as plt
+import mplfinance as mpf
+import numpy as np
 
 def download_data(ticker, start, end, interval):
     
@@ -36,7 +13,7 @@ def download_data(ticker, start, end, interval):
         raise ValueError(f"No data fetched for {ticker}. Check ticker or date range.")
     return df
 
-def pivots(data, pivotStrength, trendStrength):
+def pivots_(data, pivotStrength, trendStrength):
     #data = data.copy()
     #data.index = pd.to_datetime(data.index)
     pivots = []
@@ -55,6 +32,39 @@ def pivots(data, pivotStrength, trendStrength):
             pivots.append({'type': 'low', 'index': data.index[i], 'value': low})
 
     return pivots
+
+def get_pivots(data, pivotStrength, trendStrength):
+	pivots = []
+	for i in range(len(data)-pivotStrength, ):
+		high = data['High'].iloc[i]
+		low = data['Low'].iloc[i] 
+		pivotHigh = True
+		pivotLow = True
+		for j in range(-pivotStrength, pivotStrength):
+			if (j == 0):
+				continue
+			if (data['High'].iloc[i+j] > high):
+				pivotHigh = False
+				break
+
+		# Pivot High
+		if pivotHigh:
+			pivots.append({'type': 'high', 'index': data.index[i], 'value': high})
+
+		for j in range(-pivotStrength, pivotStrength):
+			if (j == 0):
+				continue
+			if (data['Low'].iloc[i+j] < low):
+				pivotLow = False
+				break
+		
+		# Pivot Low
+		if pivotLow:
+			pivots.append({'type': 'low', 'index': data.index[i], 'value': low})
+	
+    # Devolver los últimos 3 pivots	
+	return pivots
+
 
 def clean_pivots(pivots, pivotStrength):
     for i in range(0, len(pivots)-1):
@@ -76,20 +86,7 @@ def clean_pivots(pivots, pivotStrength):
                     pivots.remove(pivots[i])
     return pivots
 
-def plot_candles(data, title='Candlestick Chart'):
-    data = data.copy()
-    data.index = pd.to_datetime(data.index)
-    fig = go.Figure(data=[go.Candlestick(
-        x=data.index,
-        open=data['Open'],
-        high=data['High'],
-        low=data['Low'],
-        close=data['Close'],
-        name='Candles')])
-    fig.update_layout(title=title, xaxis_title='Fecha', yaxis_title='Precio', xaxis_rangeslider_visible=True)
-    fig.show()
-
-def plot_candles_with_pivots(data, pivots, title='Candlestick with Pivots'):
+'''def plot_candles_with_pivots(data, pivots, title='Candlestick with Pivots'):
     data = data.copy()
     data.index = pd.to_datetime(data.index)
     fig = go.Figure(data=[go.Candlestick(
@@ -100,7 +97,7 @@ def plot_candles_with_pivots(data, pivots, title='Candlestick with Pivots'):
         close=data['Close'],
         name='Candles')])
     # Agregar los pivots
-    '''for pivot in pivots:
+    for pivot in pivots:
         color = 'red' if pivot['type'] == 'high' else 'blue'
         symbol = 'triangle-up' if pivot['type'] == 'high' else 'triangle-down'
         fig.add_trace(go.Scatter(
@@ -109,6 +106,59 @@ def plot_candles_with_pivots(data, pivots, title='Candlestick with Pivots'):
             mode='markers',
             marker=dict(color=color, size=12, symbol=symbol),
             name=f"Pivot {pivot['type']}"
-        ))'''
+        ))
     fig.update_layout(title=title, xaxis_title='Fecha', yaxis_title='Precio', xaxis_rangeslider_visible=True)
-    fig.show()
+    fig.show() '''
+
+def plot(data, ticker):
+    mpf.plot(data, 
+             type='candle', 
+             style='charles', 
+             title='Futuro del ' + ticker, 
+             volume=False, figratio=(24,8)) 
+    plt.show()
+
+def plot_candles_with_pivots(data, pivots, title='Candlestick with Pivots'):
+    apds = []
+    for pivot in pivots:
+        color = 'r' if pivot['type'] == 'high' else 'b'
+        marker = '^' if pivot['type'] == 'high' else 'v'
+        apds.append(
+            mpf.make_addplot(
+                [pivot['value'] if idx == pivot['index'] else None for idx in data.index],
+                type='scatter', markersize=100, marker=marker, color=color
+            )
+        )
+    mpf.plot(data, 
+             type='candle',
+            addplot=apds,
+            style='charles',
+            title='Candlestick with Pivots',
+            ylabel='Precio')
+    plt.show()
+
+def plot_candles_with_pivots_mpf(data, pivots, title='Candlestick with Pivots'):
+    data = data.copy()
+    data.index = pd.to_datetime(data.index)
+    high_marker = [np.nan] * len(data)
+    low_marker = [np.nan] * len(data)
+    idx_map = {idx: i for i, idx in enumerate(data.index)}
+    for pivot in pivots:
+        i = idx_map.get(pivot['index'])
+        if i is not None:
+            if pivot['type'] == 'high':
+                high_marker[i] = pivot['value']
+            elif pivot['type'] == 'low':
+                low_marker[i] = pivot['value']
+    apds = [
+        mpf.make_addplot(high_marker, type='scatter', markersize=100, marker='^', color='r'),
+        mpf.make_addplot(low_marker, type='scatter', markersize=100, marker='v', color='b')
+    ]
+    mpf.plot(
+        data,
+        type='candle',
+        addplot=apds,
+        style='charles',
+        title=title,
+        ylabel='Precio'
+    )
