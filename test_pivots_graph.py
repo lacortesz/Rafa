@@ -3,7 +3,6 @@ import numpy as np
 import plotly.graph_objects as go
 import yfinance as yf
 
-
 def identificar_pivots(df, n=2):
     """
     Identifica pivots en un DataFrame de precios OHLC.
@@ -134,46 +133,60 @@ def determinar_tendencia(df):
 
 
 def graficar_pivots(df, symbol="Activo"):
-    """
-    Muestra un gráfico de velas con los pivots detectados.
-    Parámetros:
-        df (pd.DataFrame): DataFrame con columnas OHLC y 'pivot_label'
-        symbol (str): nombre del activo
-    """
+    import plotly.io as pio
+    import webbrowser
+    import tempfile
+    import os
+
+    # Forzar renderer a browser para mayor fiabilidad
+    pio.renderers.default = "browser"
+
+    # Copia y limpieza de datos OHLC
+    data = df.copy()
+    data.index = pd.to_datetime(data.index)
+    for c in ['Open', 'High', 'Low', 'Close']:
+        data[c] = pd.to_numeric(data[c], errors='coerce')
+    data = data.dropna(subset=['Open', 'High', 'Low', 'Close'])
+    if data.empty:
+        print("No hay datos OHLC completos para graficar.")
+        return
+
     tendencia = determinar_tendencia(df)
 
     fig = go.Figure(data=[go.Candlestick(
-        x=df.index,
-        open=df['Open'],
-        high=df['High'],
-        low=df['Low'],
-        close=df['Close'],
+        x=data.index,
+        open=data['Open'],
+        high=data['High'],
+        low=data['Low'],
+        close=data['Close'],
         name='Precio'
     )])
 
     # Pivots High
-    df_highs = df[df['pivot_high']]
-    fig.add_trace(go.Scatter(
-        x=df_highs.index,
-        y=df_highs['High'],
-        mode='markers+text',
-        marker=dict(color='red', size=10),
-        text=df_highs['pivot_label'],
-        textposition='top center',
-        name='Pivots High'
-    ))
+    df_highs = data.loc[df.index[df['pivot_high']]] if 'pivot_high' in df.columns else data.iloc[0:0]
+    if not df_highs.empty:
+        fig.add_trace(go.Scatter(
+            x=df_highs.index,
+            y=df_highs['High'],
+            mode='markers+text',
+            marker=dict(color='red', size=10),
+            text=df_highs.get('pivot_label', None),
+            textposition='top center',
+            name='Pivots High'
+        ))
 
     # Pivots Low
-    df_lows = df[df['pivot_low']]
-    fig.add_trace(go.Scatter(
-        x=df_lows.index,
-        y=df_lows['Low'],
-        mode='markers+text',
-        marker=dict(color='green', size=10),
-        text=df_lows['pivot_label'],
-        textposition='bottom center',
-        name='Pivots Low'
-    ))
+    df_lows = data.loc[df.index[df['pivot_low']]] if 'pivot_low' in df.columns else data.iloc[0:0]
+    if not df_lows.empty:
+        fig.add_trace(go.Scatter(
+            x=df_lows.index,
+            y=df_lows['Low'],
+            mode='markers+text',
+            marker=dict(color='green', size=10),
+            text=df_lows.get('pivot_label', None),
+            textposition='bottom center',
+            name='Pivots Low'
+        ))
 
     fig.update_layout(
         title=f"Pivots - {symbol} | {tendencia}",
@@ -186,7 +199,16 @@ def graficar_pivots(df, symbol="Activo"):
         legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5)
     )
 
-    fig.show()
+    # Mostrar; si falla, guardar HTML y abrir en navegador
+    try:
+        fig.show()
+    except Exception:
+        tmp = os.path.join(tempfile.gettempdir(), f"pivots_{symbol}.html")
+        fig.write_html(tmp, auto_open=True)
+        try:
+            webbrowser.open(f"file://{tmp}")
+        except Exception:
+            print(f"Gráfica guardada en: {tmp}")
 
 
 # === Ejemplo de uso ===

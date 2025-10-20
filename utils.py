@@ -4,6 +4,13 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import mplfinance as mpf
 import numpy as np
+from scipy.signal import argrelextrema
+import plotly.io as pio
+import webbrowser
+import tempfile
+import os
+import ta
+import empyrical as ep
 
 def download_data(ticker, start, end, interval):
     
@@ -139,9 +146,6 @@ def get_trend(pivots, trendStrength):
     
     return trend
 
-
-
-
 def plot_candles_with_pivots(data, pivots, title='Candlestick with Pivots'):
     data = data.copy()
     data.index = pd.to_datetime(data.index)
@@ -186,3 +190,583 @@ def plot_candles_with_pivots(data, pivots, title='Candlestick with Pivots'):
     ax.text(0.01, 0.98, f'Tendencia: {trend}', transform=ax.transAxes, fontsize=16, color='purple',
             ha='left', va='top', bbox=dict(facecolor='white', alpha=0.7, edgecolor='purple'))
     plt.show()
+
+
+    ## --------------------------11/10/2025 -------------------
+
+def identificar_pivots(df, n=2):
+    """
+    Identifica pivots en un DataFrame de precios OHLC.
+    Parámetros:
+        df (pd.DataFrame): debe contener columnas ['High', 'Low']
+        n (int): número de velas a cada lado para confirmar un pivot
+    Retorna:
+        pd.DataFrame con columnas adicionales:
+        'pivot_high', 'pivot_low', 'pivot_label'
+    """
+    df = df.copy()
+    df['pivot_high'] = False
+    df['pivot_low'] = False
+    df['pivot_label'] = None
+
+    for i in range(n, len(df) - n):
+        # Pivot High
+        if df['High'].iloc[i] == max(df['High'].iloc[i - n:i + n + 1]):
+            df.loc[df.index[i], 'pivot_high'] = True
+
+        # Pivot Low
+        if df['Low'].iloc[i] == min(df['Low'].iloc[i - n:i + n + 1]):
+            df.loc[df.index[i], 'pivot_low'] = True
+
+    # Clasificar pivots como HH, LH, HL, LL
+    last_high = None
+    last_low = None
+
+    for i in range(len(df)):
+        if df['pivot_high'].iloc[i]:
+            if last_high is not None:
+                label = "HH" if df['High'].iloc[i] > last_high else "LH"
+            else:
+                label = "H"
+            df.loc[df.index[i], 'pivot_label'] = label
+            last_high = df['High'].iloc[i]
+
+        elif df['pivot_low'].iloc[i]:
+            if last_low is not None:
+                label = "HL" if df['Low'].iloc[i] > last_low else "LL"
+            else:
+                label = "L"
+            df.loc[df.index[i], 'pivot_label'] = label
+            last_low = df['Low'].iloc[i]
+
+    return limpiar_pivots(df)
+
+def limpiar_pivots(df):
+    """
+    Elimina pivots redundantes:
+    - Si hay dos pivots High seguidos, deja solo el mayor.
+    - Si hay dos pivots Low seguidos, deja solo el menor.
+    - Si hay dos pivots en la misma fecha, prioriza el High.
+    """
+    df = df.copy()
+
+    # Extraer solo filas con pivots
+    pivots = df[(df['pivot_high']) | (df['pivot_low'])].copy()
+    pivots['tipo'] = np.where(pivots['pivot_high'], 'H', 'L')
+
+    indices_a_eliminar = []
+
+    # Regla 1 y 2: eliminar pivots consecutivos del mismo tipo
+    for i in range(1, len(pivots)):
+        prev_idx = pivots.index[i - 1]
+        curr_idx = pivots.index[i]
+
+        if pivots['tipo'].iloc[i] == pivots['tipo'].iloc[i - 1]:
+            if pivots['tipo'].iloc[i] == 'H':
+                # Dejar solo el más alto
+                if pivots['High'].iloc[i] > pivots['High'].iloc[i - 1]:
+                    indices_a_eliminar.append(prev_idx)
+                else:
+                    indices_a_eliminar.append(curr_idx)
+            else:
+                # Dejar solo el más bajo
+                if pivots['Low'].iloc[i] < pivots['Low'].iloc[i - 1]:
+                    indices_a_eliminar.append(prev_idx)
+                else:
+                    indices_a_eliminar.append(curr_idx)
+
+        # Regla 3: pivots en la misma fecha
+        if prev_idx == curr_idx:
+            if pivots['tipo'].iloc[i] == 'L':
+                indices_a_eliminar.append(curr_idx)
+
+    # Eliminar los índices marcados
+    df.loc[indices_a_eliminar, ['pivot_high', 'pivot_low', 'pivot_label']] = [False, False, None]
+
+    return df
+
+def determinar_tendencia(df, n=3):
+    """
+    Determina la tendencia basada en los últimos 3 pivots (H/L).
+    Reglas:
+      - Si últimos 3 pivots son: Low -> High -> Low mayor → Bullish
+      - Si últimos 3 pivots son: High -> Low -> High menor → Bearish
+      - En cualquier otro caso → Sin tendencia
+    """
+    pivots = df[df['pivot_label'].notnull()][['pivot_high', 'pivot_low', 'pivot_label', 'High', 'Low']]
+
+    if len(pivots) < n:
+        return "flat"
+
+    last3 = pivots.tail(3)
+
+    tipos = []
+    valores = []
+    for _, row in last3.iterrows():
+        if row['pivot_high']:
+            tipos.append("H")
+            valores.append(row['High'])
+        elif row['pivot_low']:
+            tipos.append("L")
+            valores.append(row['Low'])
+
+    if len(tipos) < 3:
+        return "flat"
+
+    if tipos == ["L", "H", "L"] and valores[2] > valores[0]:
+        return "bullish"
+    elif tipos == ["H", "L", "H"] and valores[2] < valores[0]:
+        return "bearish"
+    else:
+        return "flat"
+
+def identificar_soportes_resistencias(df, window=10, tolerance=0.005, top_n=2):
+    """
+    Identifica niveles de soporte y resistencia y devuelve los top_n más
+    cercanos al precio actual (último Close).
+
+    Parámetros:
+        df : pd.DataFrame con columnas ['High','Low','Close']
+        window : int para argrelextrema
+        tolerance : float para agrupar niveles muy cercanos (proporcional)
+        top_n : int número de niveles por tipo a devolver (por defecto 2)
+    Retorna:
+        soportes_sel, resistencias_sel : listas con hasta top_n niveles (float)
+    """
+    data = df.copy()
+    data = data.dropna(subset=['High','Low','Close'])
+    if data.empty:
+        return [], []
+
+    highs_idx = argrelextrema(data['High'].values, np.greater_equal, order=window)[0]
+    lows_idx = argrelextrema(data['Low'].values, np.less_equal, order=window)[0]
+
+    pivote_highs = data['High'].iloc[highs_idx].values.tolist()
+    pivote_lows = data['Low'].iloc[lows_idx].values.tolist()
+
+    def agrupar_niveles(niveles):
+        niveles = sorted(set(niveles))
+        if not niveles:
+            return []
+        grupos = [niveles[0]]
+        for nivel in niveles[1:]:
+            if abs(nivel - grupos[-1]) / grupos[-1] > tolerance:
+                grupos.append(nivel)
+            else:
+                # merge simple: promediar
+                grupos[-1] = (grupos[-1] + nivel) / 2.0
+        return grupos
+
+    resistencias = agrupar_niveles(pivote_highs)
+    soportes = agrupar_niveles(pivote_lows)
+
+    # seleccionar los top_n más cercanos al precio actual (último close)
+    precio_actual = float(data['Close'].iloc[-1])
+    def elegir_mas_cercanos(niveles, n):
+        if not niveles:
+            return []
+        niveles = np.array(niveles)
+        idx = np.argsort(np.abs(niveles - precio_actual))
+        seleccion = niveles[idx][:n].tolist()
+        return sorted(seleccion)  # orden ascendente para graficar
+
+    soportes_sel = elegir_mas_cercanos(soportes, top_n)
+    resistencias_sel = elegir_mas_cercanos(resistencias, top_n)
+
+    return soportes_sel, resistencias_sel
+
+def calcular_rsi(series, period=14):
+    delta = series.diff()
+    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+    return rsi
+
+def adicionar_indicadores(df):
+
+    best_fast, best_slow = buscar_smas_optimizados(df['Close'])
+    print(f"Mejores SMAs encontradas: Fast={best_fast}, Slow={best_slow}")
+
+    #Adds technical indicators to the DataFrame.
+    df['SMA_FAST'] = df['Close'].rolling(window=best_fast).mean()
+    #df['SMA_FAST_DIFF'] = df['SMA_FAST'] - df['SMA_FAST'].shift(1)
+    
+    df['SMA_SLOW'] = df['Close'].rolling(window=best_slow).mean()
+    #df['SMA_SLOW_DIFF'] = df['SMA_SLOW'] - df['SMA_SLOW'].shift(1)
+
+    #df['SMA_DIFFERENCE'] = df['SMA_FAST'] - df['SMA_SLOW']
+    
+    #df['EMA_10'] = df['Close'].ewm(span=10, adjust=False).mean()
+    
+    df['RSI_14'] = ta.momentum.RSIIndicator(df['Close'], window=14).rsi()
+    #df['RSI_14_DIFF'] = df['RSI_14'] - df['RSI_14'].shift(1)
+    
+    #df['Low_prev1'] = df['Low'].shift(1)
+    #df['Low_prev2'] = df['Low'].shift(2)
+    #df['High_prev1'] = df['High'].shift(1)
+    #df['High_prev2'] = df['High'].shift(2)
+
+    #if not df.index.name or df.index.name != 'Datetime':
+    #    df.index = pd.to_datetime(df.index)
+    #max_high_per_day = df['High'].groupby(df.index.date).transform('max')
+    #min_low_per_day = df['Low'].groupby(df.index.date).transform('min')
+    #df['IsMaxHighOfDay'] = (df['High'] == max_high_per_day).astype(int)
+    #df['IsMinLowOfDay'] = (df['Low'] == min_low_per_day).astype(int)
+   
+    # Delete rows con NaN
+    df = df.dropna()
+    return df
+
+def buscar_smas_optimizados(data):
+    fast_range = range(3, 21, 2)   # e.g. 3,5,…,19
+    slow_range = range(10, 51, 5)  # e.g. 10,15,…,50
+
+    best = {'profit': -np.inf}
+    for fw in fast_range:
+        for sw in slow_range:
+            if fw >= sw:
+                continue
+            profit, df = moving_average_crossover_profit(data, fw, sw)
+            if profit > best['profit']:
+                best = {'fast': fw, 'slow': sw, 'profit': profit, 'df': df.copy()}
+    return best['fast'], best['slow']
+
+def moving_average_crossover_profit(prices, fast_window, slow_window):
+    """
+    Compute profit for simple moving average crossover strategy:
+    - Buy when fast SMA crosses above slow SMA
+    - Sell when fast SMA crosses below slow SMA
+    """
+    if fast_window >= slow_window:
+        return -np.inf  # invalid parameter set
+    
+    df = pd.DataFrame({'price': prices})
+    df['fast_sma'] = prices.rolling(window=fast_window).mean()
+    df['slow_sma'] = prices.rolling(window=slow_window).mean()
+    df.dropna(inplace=True)
+    
+    df['signal'] = 0
+    df.loc[df.fast_sma > df.slow_sma, 'signal'] = 1
+    df['position'] = df['signal'].diff()
+    
+    # Buy at position == +1, sell at -1
+    buys = df[df['position'] == 1]['price']
+    sells = df[df['position'] == -1]['price']
+    
+    # If ends in position = 1, sell at last price
+    if df['signal'].iloc[-1] == 1:
+        sells = sells._append(pd.Series(df['price'].iloc[-1], index=[df.index[-1]]))
+    
+    profit = sells.values.sum() - buys.values.sum()
+    return profit, df
+
+def grid_search_params(prices, fast_range, slow_range):
+    """
+    Grid search over ranges of fast-moving and slow-moving windows.
+    Returns best (fast, slow, profit, df_of_best).
+    """
+    best = {'profit': -np.inf}
+    for fw in fast_range:
+        for sw in slow_range:
+            if fw >= sw:
+                continue
+            profit, df = moving_average_crossover_profit(prices, fw, sw)
+            if profit > best['profit']:
+                best = {'fast': fw, 'slow': sw, 'profit': profit, 'df': df.copy()}
+    return best
+
+
+## --------------------------Graficar -------------------
+
+def graficar_pivots(df, symbol="Activo"):
+
+    # Forzar renderer a browser para mayor fiabilidad
+    pio.renderers.default = "browser"
+
+    # Copia y limpieza de datos OHLC
+    data = df.copy()
+    data.index = pd.to_datetime(data.index)
+    for c in ['Open', 'High', 'Low', 'Close']:
+        data[c] = pd.to_numeric(data[c], errors='coerce')
+    data = data.dropna(subset=['Open', 'High', 'Low', 'Close'])
+    if data.empty:
+        print("No hay datos OHLC completos para graficar.")
+        return
+
+    tendencia = determinar_tendencia(df)
+
+    fig = go.Figure(data=[go.Candlestick(
+        x=data.index,
+        open=data['Open'],
+        high=data['High'],
+        low=data['Low'],
+        close=data['Close'],
+        name='Precio'
+    )])
+
+    # Pivots High
+    df_highs = data.loc[df.index[df['pivot_high']]] if 'pivot_high' in df.columns else data.iloc[0:0]
+    if not df_highs.empty:
+        fig.add_trace(go.Scatter(
+            x=df_highs.index,
+            y=df_highs['High'],
+            mode='markers+text',
+            marker=dict(color='red', size=10),
+            text=df_highs.get('pivot_label', None),
+            textposition='top center',
+            name='Pivots High'
+        ))
+
+    # Pivots Low
+    df_lows = data.loc[df.index[df['pivot_low']]] if 'pivot_low' in df.columns else data.iloc[0:0]
+    if not df_lows.empty:
+        fig.add_trace(go.Scatter(
+            x=df_lows.index,
+            y=df_lows['Low'],
+            mode='markers+text',
+            marker=dict(color='green', size=10),
+            text=df_lows.get('pivot_label', None),
+            textposition='bottom center',
+            name='Pivots Low'
+        ))
+
+    fig.update_layout(
+        title=f"Pivots - {symbol} | {tendencia}",
+        yaxis_title='Precio',
+        xaxis_title='Fecha',
+        template='plotly_white',
+        width=1200,
+        height=700,
+        xaxis_rangeslider_visible=False,
+        xaxis_type='category',
+        legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5)
+    )
+
+    # Mostrar; si falla, guardar HTML y abrir en navegador
+    try:
+        fig.show()
+    except Exception:
+        tmp = os.path.join(tempfile.gettempdir(), f"pivots_{symbol}.html")
+        fig.write_html(tmp, auto_open=True)
+        try:
+            webbrowser.open(f"file://{tmp}")
+        except Exception:
+            print(f"Gráfica guardada en: {tmp}")
+
+def graficar_soportes_resistencias_plotly(df, soportes, resistencias, titulo="Soportes y Resistencias", symbol="Activo"):
+    """
+    Grafica velas con Plotly y dibuja líneas horizontales para soportes/resistencias.
+    """
+    data = df.copy()
+    data.index = pd.to_datetime(data.index)
+    data = data.dropna(subset=['Open','High','Low','Close'])
+    if data.empty:
+        print("No hay datos OHLC completos para graficar.")
+        return
+
+    fig = go.Figure(data=[go.Candlestick(
+        x=data.index,
+        open=data['Open'],
+        high=data['High'],
+        low=data['Low'],
+        close=data['Close'],
+        name='Precio'
+    )])
+
+    shapes = []
+    annotations = []
+    last_x = data.index[-1]
+
+    # Añadir resistencias (líneas rojas)
+    for i, nivel in enumerate(resistencias):
+        shapes.append(dict(type='line', x0=data.index[0], x1=last_x, xref='x', y0=nivel, y1=nivel,
+                           yref='y', line=dict(color='red', width=1.5, dash='dash')))
+        annotations.append(dict(x=last_x, y=nivel, xref='x', yref='y',
+                                text=f"R{i+1}: {nivel:.4f}", showarrow=False,
+                                xanchor='left', font=dict(color='red')))
+
+    # Añadir soportes (líneas verdes)
+    for i, nivel in enumerate(soportes):
+        shapes.append(dict(type='line', x0=data.index[0], x1=last_x, xref='x', y0=nivel, y1=nivel,
+                           yref='y', line=dict(color='green', width=1.5, dash='dash')))
+        annotations.append(dict(x=last_x, y=nivel, xref='x', yref='y',
+                                text=f"S{i+1}: {nivel:.4f}", showarrow=False,
+                                xanchor='left', font=dict(color='green')))
+
+    fig.update_layout(title=f"{symbol} - {titulo}", shapes=shapes, annotations=annotations,
+                      yaxis_title='Precio', xaxis_title='Fecha',
+                      template='plotly_white', xaxis_rangeslider_visible=False,
+                      width=1200, height=700)
+
+    try:
+        fig.show()
+    except Exception:
+        # fallback: guardar html y abrir navegador
+        import tempfile, webbrowser, os
+        tmp = os.path.join(tempfile.gettempdir(), f"soportes_resistencias_{symbol}.html")
+        fig.write_html(tmp, auto_open=True)
+
+def graficar_pivots_soportes_resistencias(df, pivots, soportes, resistencias, symbol="Activo", tendencia="", rsi=0,
+                                          sma_fast_col='SMA_FAST', sma_slow_col='SMA_SLOW', name="defaul", timeframe="1D"):
+    """
+    Grafica los pivotes, soportes y resistencias en un solo gráfico.
+    """
+    data = df.copy()
+    data.index = pd.to_datetime(data.index)
+    data = data.dropna(subset=['Open','High','Low','Close'])
+    if data.empty:
+        print("No hay datos OHLC completos para graficar.")
+        return
+
+    fig = go.Figure(data=[go.Candlestick(
+        x=data.index,
+        open=data['Open'],
+        high=data['High'],
+        low=data['Low'],
+        close=data['Close'],
+        name='Precio'
+    )])
+
+    data_pivots = pivots.copy()
+    data_pivots.index = pd.to_datetime(data_pivots.index)
+    for c in ['Open', 'High', 'Low', 'Close']:
+        data_pivots[c] = pd.to_numeric(data_pivots[c], errors='coerce')
+    data_pivots = data_pivots.dropna(subset=['Open', 'High', 'Low', 'Close'])
+
+    df_highs = data_pivots.loc[pivots.index[pivots['pivot_high']]] if 'pivot_high' in pivots.columns else data_pivots.iloc[0:0]
+    if not df_highs.empty:
+        fig.add_trace(go.Scatter(
+            x=df_highs.index,
+            y=df_highs['High'],
+            mode='markers+text',
+            marker=dict(color='red', size=10),
+            text=df_highs.get('pivot_label', None),
+            textposition='top center',
+            name='Pivots High'
+        ))
+
+    # Pivots Low
+    df_lows = data_pivots.loc[pivots.index[pivots['pivot_low']]] if 'pivot_low' in pivots.columns else data_pivots.iloc[0:0]
+    if not df_lows.empty:
+        fig.add_trace(go.Scatter(
+            x=df_lows.index,
+            y=df_lows['Low'],
+            mode='markers+text',
+            marker=dict(color='green', size=10),
+            text=df_lows.get('pivot_label', None),
+            textposition='bottom center',
+            name='Pivots Low'
+        ))
+
+    # Graficar soportes
+    for i, nivel in enumerate(soportes):
+        fig.add_trace(go.Scatter(
+            x=[data.index[0], data.index[-1]],
+            y=[nivel, nivel],
+            mode='lines',
+            line=dict(color='green', width=1.5, dash='dash'),
+            name=f"Soporte {i+1}"
+        ))
+
+    # Graficar resistencias
+    for i, nivel in enumerate(resistencias):
+        fig.add_trace(go.Scatter(
+            x=[data.index[0], data.index[-1]],
+            y=[nivel, nivel],
+            mode='lines',
+            line=dict(color='red', width=1.5, dash='dash'),
+            name=f"Resistencia {i+1}"
+        )) 
+
+    # Añadir SMAs si existen
+    if sma_fast_col in df.columns:
+        fig.add_trace(go.Scatter(x=df.index, y=df[sma_fast_col],
+                                 mode='lines', name=sma_fast_col,
+                                 line=dict(color='orange', width=1.5)))
+    if sma_slow_col in df.columns:
+        fig.add_trace(go.Scatter(x=df.index, y=df[sma_slow_col],
+                                 mode='lines', name=sma_slow_col,
+                                 line=dict(color='blue', width=1.5)))
+
+
+    fig.update_layout(
+        title = f"{name} ({symbol}) {timeframe} - Tendencia: {tendencia} - RSI: {str(data['RSI_14'].iloc[-1].round(2))}",
+        yaxis_title='Precio',
+        yaxis=dict(automargin=True),
+        xaxis=dict(
+            #type='category',
+            #tickformat='dd-mm-yy HH:MM',
+            tickangle=-45,
+            tickmode='auto',
+            tickfont=dict(size=10),
+            rangeslider=dict(visible=False )       ),
+        template='plotly_white',
+        width=1200,
+        height=700,
+        legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5)
+    )
+
+    try:
+        fig.show()
+    except Exception:
+        tmp = os.path.join(tempfile.gettempdir(), f"pivots_soportes_resistencias_{symbol}.html")
+        fig.write_html(tmp, auto_open=True)
+
+
+def format_datetime_index(df, fmt='%d-%m-%y %H:%M', tz=None, localize=None,
+                          drop_timezone=True, add_str_column=False, col_name='DatetimeStr', inplace=False):
+    """
+    Asegura que el índice sea DatetimeIndex, opcionalmente localiza/convierte timezone,
+    opcionalmente elimina la zona horaria y crea una columna con la fecha formateada.
+
+    Parámetros:
+      - df: DataFrame
+      - fmt: formato de salida para la columna string (strftime), por defecto 'dd-mm-yy HH:MM'
+      - tz: convierte el índice a este timezone (ej. 'UTC', 'Europe/Madrid') si no es None
+      - localize: si el índice es naive y localize no es None, hace tz_localize(localize)
+      - drop_timezone: si True, al final quita la info de timezone (index tz naive)
+      - add_str_column: si True, añade columna `col_name` con index.strftime(fmt)
+      - col_name: nombre de la columna a crear si add_str_column=True
+      - inplace: si True modifica df en sitio y devuelve el mismo DataFrame
+
+    Retorna:
+      DataFrame con índice datetime normalizado (y columna formateada si se pidió).
+    """
+    if not inplace:
+        df = df.copy()
+    # asegurar DatetimeIndex
+    df.index = pd.to_datetime(df.index, errors='coerce')
+    if df.index.isnull().any():
+        # eliminar filas con índices no parseables
+        df = df[~df.index.isnull()]
+
+    # localizar timezone si se solicita y el índice es naive
+    try:
+        if localize is not None and df.index.tz is None:
+            df.index = df.index.tz_localize(localize)
+    except Exception:
+        pass
+
+    # convertir timezone si se solicita
+    try:
+        if tz is not None:
+            # si aún no tiene tz y no se pidió localize, localize a UTC antes de convertir
+            if df.index.tz is None:
+                df.index = df.index.tz_localize('UTC')
+            df.index = df.index.tz_convert(tz)
+    except Exception:
+        pass
+
+    # opcional: quitar tz info para dejar índices naive
+    try:
+        if drop_timezone and df.index.tz is not None:
+            df.index = df.index.tz_localize(None)
+    except Exception:
+        pass
+
+    # añadir columna string con formato deseado
+    if add_str_column:
+        df[col_name] = df.index.strftime(fmt)
+
+    return df
