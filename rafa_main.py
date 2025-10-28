@@ -52,8 +52,6 @@ if __name__ == "__main__":
         print(f"Datos descargados para {name} ({symbol}):")
         print(data.tail(10))
 
-
-
         # Detectar pivots
         df_pivots = utils.identificar_pivots(data, parameters.pivotStrength)
 

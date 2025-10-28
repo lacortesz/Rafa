@@ -3,6 +3,7 @@ import pandas as pd
 from dash import Dash, dcc, html
 from dash.dependencies import Input, Output
 import plotly.graph_objects as go
+import utils
 
 # --- CONFIGURACIÓN ---
 TICKER = "6B=F"
@@ -20,9 +21,13 @@ if FULL_DF.empty:
     print("No data downloaded. Revisa el ticker o la conexión.")
 else:
     FULL_DF = FULL_DF.reset_index()
+    #fasts, slow = utils.get_sma(FULL_DF["Close"], [14, 20])
     FULL_DF["SMA14"] = FULL_DF["Close"].rolling(window=14).mean()
     FULL_DF["SMA20"] = FULL_DF["Close"].rolling(window=20).mean()
     print(f"Downloaded {len(FULL_DF)} rows")
+
+    print("identificando pivots...")
+    FULL_DF = utils.identificar_pivots(FULL_DF, n=2)
 
 WINDOW_SIZE = 60
 
@@ -81,6 +86,34 @@ def update_graph(n):
         line=dict(width=1.5, color='cyan'),
         name='SMA 20'
     ))
+
+    # --- Añadir pivots si existen ---
+    # columnas esperadas: 'pivot_high', 'pivot_low', 'type2' o 'pivot_label'
+    if 'pivot_high' in df_win.columns:
+        df_highs = df_win[df_win['pivot_high'] == True]
+        if not df_highs.empty:
+            fig.add_trace(go.Scatter(
+                x=df_highs['Datetime'],
+                y=df_highs['High'],
+                mode='markers+text',
+                marker=dict(symbol='triangle-up', color='red', size=10),
+                text=df_highs.get('type2', df_highs.get('pivot_label', None)),
+                textposition='top center',
+                name='Pivot High'
+            ))
+
+    if 'pivot_low' in df_win.columns:
+        df_lows = df_win[df_win['pivot_low'] == True]
+        if not df_lows.empty:
+            fig.add_trace(go.Scatter(
+                x=df_lows['Datetime'],
+                y=df_lows['Low'],
+                mode='markers+text',
+                marker=dict(symbol='triangle-down', color='green', size=10),
+                text=df_lows.get('type2', df_lows.get('pivot_label', None)),
+                textposition='bottom center',
+                name='Pivot Low'
+            ))
 
     current_range_end = df_win['Datetime'].iloc[-1] if not df_win.empty else None
     fig.update_layout(

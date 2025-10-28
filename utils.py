@@ -634,6 +634,7 @@ def graficar_pivots_soportes_resistencias(df, pivots, soportes, resistencias, sy
         data_pivots[c] = pd.to_numeric(data_pivots[c], errors='coerce')
     data_pivots = data_pivots.dropna(subset=['Open', 'High', 'Low', 'Close'])
 
+    #pivots high
     df_highs = data_pivots.loc[pivots.index[pivots['pivot_high']]] if 'pivot_high' in pivots.columns else data_pivots.iloc[0:0]
     if not df_highs.empty:
         fig.add_trace(go.Scatter(
