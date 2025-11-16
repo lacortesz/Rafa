@@ -38,41 +38,47 @@ if __name__ == "__main__":
     info = pd.DataFrame()
 
     for name, symbol in parameters.symbols.items():
-        #symbol = parameters.symbols['Euro FX']
-        #data = utils.download_data(symbol, '2024-06-01', '2024-06-20', '1d')
-        data = yf.download(symbol, period="6mo", interval="1d", multi_level_index=False)
+        for intervalo, periodo in parameters.intervalos_.items():
+            print(f"Procesando {name} ({symbol}) para intervalo {intervalo} y periodo {periodo}")
+            #symbol = parameters.symbols['Euro FX']
+            #data = utils.download_data(symbol, '2024-06-01', '2024-06-20', '1d')
+            data = yf.download(symbol, period=periodo, interval=intervalo, multi_level_index=False)
 
-        data = utils.format_datetime_index(data, inplace=True)
+            data = utils.format_datetime_index(data, inplace=True)
 
-        #print(data['DatetimeStr'])
+            #print(data['DatetimeStr'])
 
-        #adicionar indicadores tecnicos
-        utils.adicionar_indicadores(data)
+            #adicionar indicadores tecnicos
+            utils.adicionar_indicadores(data)
 
-        print(f"Datos descargados para {name} ({symbol}):")
-        print(data.tail(10))
+            print(f"Datos descargados para {name} ({symbol}):")
+            print(data.tail(10))
 
-        # Detectar pivots
-        df_pivots = utils.identificar_pivots(data, parameters.pivotStrength)
+            # Detectar pivots
+            df_pivots = utils.identificar_pivots(data, parameters.pivotStrength)
 
-        # Detectar soportes y resistencias
-        soportes, resistencias = utils.identificar_soportes_resistencias(data, window=10, tolerance=0.005, top_n=parameters.n_soportes_resistencias)
+            # Detectar soportes y resistencias
+            soportes, resistencias = utils.identificar_soportes_resistencias(data, window=10, tolerance=0.005, top_n=parameters.n_soportes_resistencias)
 
-        # Graficar resultado final
-        #utils.graficar_pivots(df_pivots, symbol)
+            # Graficar resultado final
+            #utils.graficar_pivots(df_pivots, symbol)
 
-        tendencia = utils.determinar_tendencia(df_pivots, parameters.trendStrength)
-        rsi = utils.calcular_rsi(data['Close'], period=14)
+            tendencia = utils.determinar_tendencia(df_pivots, parameters.trendStrength)
+            rsi = utils.calcular_rsi(data['Close'], period=14)
 
-        info = info._append({
-            #'Nombre': name,
-            'Símbolo': symbol,
-            'Tendencia': tendencia,
-            'RSI': rsi,
-            'Soportes': soportes,
-            'Resistencias': resistencias
-        }, ignore_index=True)
+            info = info._append({
+                #'Nombre': name,
+                'Símbolo': symbol,
+                'Timeframe': intervalo,
+                'Tendencia': tendencia,
+                'RSI': rsi,
+                'Soportes': soportes,
+                'Resistencias': resistencias
+            }, ignore_index=True)
 
-        print(info.tail())
+            print(info.tail())
 
-        utils.graficar_pivots_soportes_resistencias(data, df_pivots, soportes, resistencias, symbol, tendencia, rsi, name=name)
+            utils.graficar_pivots_soportes_resistencias(data, df_pivots, soportes, resistencias, symbol, tendencia, rsi, name=name, timeframe=intervalo)
+
+    info.to_csv('info.csv', index=False)
+    print("Info saved to info.csv")
