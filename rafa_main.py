@@ -78,7 +78,7 @@ if __name__ == "__main__":
 
             print(info.tail())
 
-            utils.graficar_pivots_soportes_resistencias(data, df_pivots, soportes, resistencias, symbol, tendencia, rsi, name=name, timeframe=intervalo)
+            #utils.graficar_pivots_soportes_resistencias(data, df_pivots, soportes, resistencias, symbol, tendencia, rsi, name=name, timeframe=intervalo)
 
     info.to_csv('info.csv', index=False)
     print("Info saved to info.csv")
