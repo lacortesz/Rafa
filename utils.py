@@ -313,9 +313,9 @@ def determinar_tendencia(df, n=3):
     if len(tipos) < 3:
         return "flat"
 
-    if tipos == ["L", "H", "L"] and valores[2] > valores[0]:
+    if (tipos == ["L", "H", "L"] or tipos == ["H", "L", "H"]) and valores[2] > valores[0]:
         return "bullish"
-    elif tipos == ["H", "L", "H"] and valores[2] < valores[0]:
+    elif (tipos == ["H", "L", "H"] or tipos == ["L", "H", "L"]) and valores[2] < valores[0]:
         return "bearish"
     else:
         return "flat"

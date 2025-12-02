@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <title>Resumen Tendencias - Tabla</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    body { font-family: Arial, sans-serif; margin: 16px; background:#f7f7f7; color:#222 }
+    h1 { font-size:20px; margin-bottom:12px }
+    table { border-collapse: collapse; width:100%; background:#fff; box-shadow:0 1px 4px rgba(0,0,0,0.08) }
+    th, td { padding:10px 12px; border-bottom:1px solid #eee; text-align:center }
+    th { background:#fafafa; font-weight:700; position:sticky; top:0; z-index:2 }
+    tr:hover td { background:#fcfcfc }
+    .cell-bull { color: #0b7a07; font-weight:700 }
+    .cell-bear { color: #b20d00; font-weight:700 }
+    .cell-flat { color: #666; font-weight:600 }
+    .small { font-size:0.85rem; color:#666; margin-top:8px }
+    #loading { margin:12px 0; color:#444 }
+    #controls { margin-bottom:10px; display:flex; gap:8px; align-items:center }
+    button { padding:6px 10px; border-radius:6px; border:1px solid #ddd; background:#fff; cursor:pointer }
+    button:active { transform:translateY(1px) }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+</head>
+<body>
+  <h1>Resumen: Activo · 1d · 4h · 1h · 15m</h1>
+  <div id="controls">
+    <button id="reloadBtn">Recargar</button>
+    <div id="loading">Cargando info.csv …</div>
+  </div>
+  <div id="tableWrap"></div>
+  <div class="small">Archivo: info.csv (debe estar en el mismo directorio o servirse vía HTTP)</div>
+
+  <script>
+    const ORDER = ['1d','4h','1h','15m'];
+    const CSV_PATH = 'info.csv';
+
+    function normalizeTF(tf){
+      if(!tf && tf !== 0) return '';
+      return String(tf).trim().toLowerCase().replace(/\s+/g,'');
+    }
+
+    function trendClass(val){
+      if(!val) return '';
+      const s = String(val).toLowerCase();
+      if(s.includes('bull') || s.includes('alc') || s.includes('hh')) return 'cell-bull';
+      if(s.includes('bear') || s.includes('baj') || s.includes('lh')) return 'cell-bear';
+      if(s.includes('flat') || s.includes('no') || s.includes('sin')) return 'cell-flat';
+      return '';
+    }
+
+    function renderTable(mapSymbols){
+      const wrap = document.getElementById('tableWrap');
+      const table = document.createElement('table');
+      const thead = document.createElement('thead');
+      const trh = document.createElement('tr');
+
+      const headers = ['Activo', ...ORDER];
+      headers.forEach(h => {
+        const th = document.createElement('th');
+        th.textContent = h;
+        trh.appendChild(th);
+      });
+      thead.appendChild(trh);
+      table.appendChild(thead);
+
+      const tbody = document.createElement('tbody');
+      // sort symbols alphabetically
+      const symbols = Array.from(mapSymbols.keys()).sort((a,b)=> a.localeCompare(b, undefined, {sensitivity:'base'}));
+      symbols.forEach(sym => {
+        const row = document.createElement('tr');
+        const data = mapSymbols.get(sym);
+        const tdSym = document.createElement('td');
+        tdSym.textContent = sym;
+        tdSym.style.textAlign = 'left';
+        row.appendChild(tdSym);
+        ORDER.forEach(tf => {
+          const td = document.createElement('td');
+          const val = data[tf] || '';
+          td.innerHTML = val ? `<span class="${trendClass(val)}">${val}</span>` : '';
+          row.appendChild(td);
+        });
+        tbody.appendChild(row);
+      });
+
+      table.appendChild(tbody);
+      wrap.innerHTML = '';
+      wrap.appendChild(table);
+    }
+
+    function buildMap(rows){
+      const map = new Map();
+      // detect column names (case-insensitive)
+      const keys = rows.length ? Object.keys(rows[0]) : [];
+      const colSymbol = keys.find(k=>/símbolo|simbolo|symbol|ticker|name/i.test(k)) || keys[0];
+      const colTF = keys.find(k=>/timeframe|intervalo|interval|period/i.test(k));
+      const colTrend = keys.find(k=>/tendenci|trend/i.test(k)) || keys.find(k=>/tendencia/i.test(k));
+
+      rows.forEach(r=>{
+        const sym = (r[colSymbol] || '').trim();
+        if(!sym) return;
+        const tf = colTF ? normalizeTF(r[colTF]) : '';
+        const trend = (r[colTrend] || '').toString().trim();
+        if(!map.has(sym)) {
+          const obj = {};
+          ORDER.forEach(x=> obj[x] = '');
+          map.set(sym, obj);
+        }
+        if(tf && ORDER.includes(tf)){
+          map.get(sym)[tf] = trend;
+        } else if(!tf){
+          // if no timeframe column, try to infer: if row contains one of ORDER values in any column name/value
+          ORDER.forEach(x=>{
+            // if any column equals that timeframe string in row values, assign
+            for(const k of Object.keys(r)){
+              if(String(r[k]).toLowerCase().includes(x) && !map.get(sym)[x]){
+                map.get(sym)[x] = trend;
+              }
+            }
+          });
+        }
+      });
+      return map;
+    }
+
+    function loadAndRender(){
+      document.getElementById('loading').textContent = 'Cargando info.csv …';
+      Papa.parse(CSV_PATH, {
+        download: true,
+        header: true,
+        skipEmptyLines: true,
+        complete: function(results){
+          const rows = results.data || [];
+          const map = buildMap(rows);
+          renderTable(map);
+          document.getElementById('loading').textContent = `Cargado: ${rows.length} filas · ${map.size} activos`;
+        },
+        error: function(err){
+          document.getElementById('tableWrap').innerHTML = `<div style="color:#900">Error cargando info.csv: ${err.message || err}</div>`;
+          document.getElementById('loading').textContent = 'Error';
+        }
+      });
+    }
+
+    document.getElementById('reloadBtn').addEventListener('click', loadAndRender);
+
+    // initial load
+    loadAndRender();
+  </script>
+</body>
+</html>

@@ -5,6 +5,9 @@ import pandas as pd
 import yfinance as yf
 import utils
 import parameters   
+import os
+import subprocess
+import sys
 
 
 ## Variables definition
@@ -81,4 +84,17 @@ if __name__ == "__main__":
             #utils.graficar_pivots_soportes_resistencias(data, df_pivots, soportes, resistencias, symbol, tendencia, rsi, name=name, timeframe=intervalo)
 
     info.to_csv('info.csv', index=False)
+
+    # Ejecutar web_table.py al finalizar
+    print("\nIniciando servidor web en http://127.0.0.1:5000...")
+    try:
+        subprocess.Popen([sys.executable, 'web_table.py'], 
+                         cwd=os.getcwd(),
+                         stdout=subprocess.PIPE,
+                         stderr=subprocess.PIPE)
+        print("Servidor web iniciado. Abre http://127.0.0.1:5000 en tu navegador.")
+    except Exception as e:
+        print(f"Error al iniciar web_table.py: {e}")
+        print("Ejecuta manualmente: python web_table.py")
+
     print("Info saved to info.csv")

@@ -24,8 +24,8 @@ symbols = {
     "Yen Japonés": "6J=F",
     "Libra Esterlina": "6B=F",
     "Dólar Australiano": "6A=F",
-    "10-Year T-Note": "ZN=F",
-    "30-Year T-Bond": "ZB=F"
+    "10-Year T-Note": "ZN=F"#,
+    #"30-Year T-Bond": "ZB=F"
  
 }
 

@@ -9,7 +9,7 @@ HTML_TEMPLATE = """
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Resumen Tendencias</title>
+  <title>Pre Market</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     body { font-family: Arial, sans-serif; margin: 20px; }
@@ -66,40 +66,56 @@ def index():
 
     df = pd.read_csv(path)
 
+    # detectar columnas relevantes
     symbol_col = _find_column(df, ['Símbolo', 'Simbolo', 'Symbol', 'Ticker', 'Name'])
     timeframe_col = _find_column(df, ['Timeframe', 'Intervalo', 'Interval', 'Period'])
     trend_col = _find_column(df, ['Tendencia', 'Trend', 'tendencia', 'Trend'])
 
-    if symbol_col is None or timeframe_col is None or trend_col is None:
-        html = df.to_html(classes="table table-striped", index=False, escape=False)
-        return render_template_string(HTML_TEMPLATE, table_html=html, path=path)
+    # Si no hay columna timeframe: eliminar cualquier columna que haga referencia a timeframe
+    timeframe_candidates = ['Timeframe', 'Intervalo', 'Interval', 'Period']
+    if timeframe_col is None:
+        to_drop = [c for c in df.columns if c.strip().lower() in [t.lower() for t in timeframe_candidates]]
+        if to_drop:
+            df = df.drop(columns=to_drop, errors='ignore')
 
-    # pivot: una fila por instrumento, columnas = timeframes
-    pivot = df[[symbol_col, timeframe_col, trend_col]].dropna(subset=[symbol_col, timeframe_col])
-    pivot_table = pivot.pivot_table(index=symbol_col, columns=timeframe_col, values=trend_col, aggfunc='first')
-    pivot_table = pivot_table.fillna("")
+    # Si disponemos de symbol + timeframe + trend -> pivot como antes
+    if symbol_col and timeframe_col and trend_col:
+        pivot = df[[symbol_col, timeframe_col, trend_col]].dropna(subset=[symbol_col, timeframe_col])
+        pivot_table = pivot.pivot_table(index=symbol_col, columns=timeframe_col, values=trend_col, aggfunc='first')
+        pivot_table = pivot_table.fillna("")
 
-    # normalizar nombres de columnas y construir mapeo normalizado -> original
-    orig_cols = list(pivot_table.columns)
-    norm_to_orig = {}
-    for c in orig_cols:
-        norm = str(c).strip().lower().replace(" ", "")
-        norm_to_orig[norm] = c
+        # normalizar nombres de columnas y construir mapeo normalizado -> original
+        orig_cols = list(pivot_table.columns)
+        norm_to_orig = {}
+        for c in orig_cols:
+            norm = str(c).strip().lower().replace(" ", "")
+            norm_to_orig[norm] = c
 
-    # ordenar columnas en el orden deseado (izquierda -> derecha)
-    desired_order_norm = ['1d', '4h', '1h', '15m']
-    cols_present = [norm_to_orig[n] for n in desired_order_norm if n in norm_to_orig]
-    other_cols = [c for c in orig_cols if c not in cols_present]
-    ordered_cols = cols_present + other_cols
-    pivot_table = pivot_table.loc[:, ordered_cols] if ordered_cols else pivot_table
+        # ordenar columnas en el orden deseado (izquierda -> derecha)
+        desired_order_norm = ['1d', '4h', '1h', '15m']
+        cols_present = [norm_to_orig[n] for n in desired_order_norm if n in norm_to_orig]
+        other_cols = [c for c in orig_cols if c not in cols_present]
+        ordered_cols = cols_present + other_cols
+        pivot_table = pivot_table.loc[:, ordered_cols] if ordered_cols else pivot_table
 
-    # aplicar coloreado a cada celda (devuelve HTML en celda)
-    styled = pivot_table.applymap(_colorize_trend)
+        # aplicar coloreado y reset index para mostrar símbolo en primera columna
+        styled = pivot_table.applymap(_colorize_trend).reset_index()
+        table_html = styled.to_html(index=False, escape=False, classes="table table-striped")
+        return render_template_string(HTML_TEMPLATE, table_html=table_html, path=path)
 
-    # generar HTML: convertir índice (símbolo) en columna para mostrar como primera columna
-    styled = styled.reset_index()
-    table_html = styled.to_html(index=False, escape=False, classes="table table-striped")
+    # En caso contrario (no hay timeframe column) mostrar la tabla sin la columna timeframe
+    # Asegurar que el símbolo esté como primera columna si existe
+    if symbol_col and symbol_col in df.columns:
+        cols = [symbol_col] + [c for c in df.columns if c != symbol_col]
+    else:
+        cols = list(df.columns)
 
+    df_display = df[cols].copy()
+    # colorear la columna de tendencia si existe
+    if trend_col and trend_col in df_display.columns:
+        df_display[trend_col] = df_display[trend_col].apply(_colorize_trend)
+
+    table_html = df_display.to_html(index=False, escape=False, classes="table table-striped")
     return render_template_string(HTML_TEMPLATE, table_html=table_html, path=path)
 
 @app.route("/download")
