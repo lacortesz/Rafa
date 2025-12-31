@@ -11,6 +11,7 @@ import tempfile
 import os
 import ta
 import empyrical as ep
+import threading
 
 def download_data(ticker, start, end, interval):
     
@@ -692,7 +693,7 @@ def graficar_pivots_soportes_resistencias(df, pivots, soportes, resistencias, sy
 
 
     fig.update_layout(
-        title = f"{name} ({symbol}) {timeframe} - Tendencia: {tendencia} - RSI: {str(data['RSI_14'].iloc[-1].round(2))}",
+        title = f"{name} ({symbol}) {timeframe} - Tendencia: {tendencia} - RSI:", #{str(data['RSI_14'].iloc[-1].round(2))}",
         yaxis_title='Precio',
         yaxis=dict(automargin=True),
         xaxis=dict(
@@ -771,3 +772,158 @@ def format_datetime_index(df, fmt='%d-%m-%y %H:%M', tz=None, localize=None,
         df[col_name] = df.index.strftime(fmt)
 
     return df
+
+# --- funciones para recibir y guardar 'bars' desde websocket/webhook ---
+
+
+_FILE_SAVE_LOCK = threading.Lock()
+
+def bars_to_df(bars):
+    """Normaliza 'bars' (lista de dicts o dict de listas) a DataFrame con columna 'datetime'."""
+    if isinstance(bars, dict):
+        df = pd.DataFrame(bars)
+    else:
+        df = pd.DataFrame(bars)
+
+    datetime_cols = [c for c in df.columns if c.lower() in ("datetime", "time", "timestamp", "date")]
+    if datetime_cols:
+        dt_col = datetime_cols[0]
+        df[dt_col] = pd.to_datetime(df[dt_col], errors="coerce")
+        if dt_col != "datetime":
+            df = df.rename(columns={dt_col: "datetime"})
+    else:
+        df["datetime"] = pd.NaT
+
+    return df
+
+def save_bars_csv(payload, out_dir=None, add_indicators=True):
+    """
+    Guarda payload {'symbol', 'timeframe', 'bars'} en CSV:
+      - out_dir/{symbol}_{timeframe}.csv
+    Devuelve resumen: {symbol, timeframe, received_rows, stored_rows, file}
+    """
+    if out_dir is None:
+        out_dir = os.path.join(os.getcwd(), "received_data")
+    os.makedirs(out_dir, exist_ok=True)
+
+    symbol = payload.get("symbol") or payload.get("ticker") or payload.get("instrument") or "UNKNOWN"
+    timeframe = payload.get("timeframe") or payload.get("interval") or "UNKNOWN"
+    bars = payload.get("bars") or payload.get("data") or payload.get("ohlc")
+    if not bars:
+        raise ValueError("No 'bars' array found in payload")
+
+    df = bars_to_df(bars)
+    df["symbol"] = symbol
+    df["timeframe"] = timeframe
+
+    filename = f"{symbol}_{timeframe}.csv"
+    out_path = os.path.join(out_dir, filename)
+
+    with _FILE_SAVE_LOCK:
+        if os.path.exists(out_path):
+            try:
+                df_existing = pd.read_csv(out_path, parse_dates=["datetime"], dayfirst=False)
+            except Exception:
+                df_existing = pd.read_csv(out_path)
+            df_combined = pd.concat([df_existing, df], ignore_index=True, sort=False)
+            if "datetime" in df_combined.columns:
+                df_combined = df_combined.drop_duplicates(subset=["datetime"], keep="last")
+                df_combined = df_combined.sort_values(by="datetime").reset_index(drop=True)
+            else:
+                df_combined = df_combined.drop_duplicates().reset_index(drop=True)
+            if add_indicators and "Close" in df_combined.columns:
+                adicionar_indicadores(df_combined)
+            df_combined.to_csv(out_path, index=False)
+            stored_rows = len(df_combined)
+        else:
+            if add_indicators and "Close" in df.columns:
+                adicionar_indicadores(df)
+            df.to_csv(out_path, index=False)
+            stored_rows = len(df)
+
+    return {"symbol": symbol, "timeframe": timeframe, "received_rows": len(df), "stored_rows": stored_rows, "file": out_path}
+
+
+# --- Cargar y graficar velas desde CSV (received_data) ---
+
+def load_bars_csv(symbol, timeframe, out_dir=None):
+    """
+    Carga el CSV correspondiente a (symbol, timeframe) desde out_dir y
+    normaliza la columna 'datetime' y las columnas OHLC.
+    Devuelve DataFrame con columna 'datetime' (datetime64) y columnas Open/High/Low/Close (numéricas).
+    """
+    if out_dir is None:
+        out_dir = os.path.join(os.getcwd(), "received_data")
+    filename = f"{symbol}_{timeframe}.csv"
+    path = os.path.join(out_dir, filename)
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"File not found: {path}")
+
+    df = pd.read_csv(path)
+    # detectar/normalizar datetime
+    datetime_cols = [c for c in df.columns if c.lower() in ("datetime", "time", "timestamp", "date")]
+    if not datetime_cols:
+        raise ValueError("No datetime column found in CSV")
+    dt_col = datetime_cols[0]
+    df[dt_col] = pd.to_datetime(df[dt_col], errors="coerce")
+    df = df.sort_values(by=dt_col).reset_index(drop=True)
+    if dt_col != "datetime":
+        df = df.rename(columns={dt_col: "datetime"})
+
+    # asegurar OHLC como numéricos
+    for c in ("Open", "High", "Low", "Close"):
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+        else:
+            raise ValueError(f"Missing required column '{c}' in CSV {path}")
+
+    return df
+
+def plot_candles_from_csv(symbol, timeframe, out_dir=None, title=None, show=True, save_html=None, use_mpl=False):
+    """
+    Crea un gráfico de velas para (symbol, timeframe) tomando la data desde CSV.
+    - out_dir: carpeta con CSVs (por defecto ./received_data)
+    - title: título de la gráfica
+    - show: si True muestra la gráfica en el navegador
+    - save_html: si se da ruta, guarda la gráfica plotly en HTML
+    - use_mpl: si True usa mplfinance en lugar de plotly
+    Retorna la figura (plotly.graph_objs.Figure o mplfinance figura).
+    """
+    df = load_bars_csv(symbol, timeframe, out_dir=out_dir)
+    if title is None:
+        title = f"{symbol} - {timeframe}"
+
+    if use_mpl:
+        # usar mplfinance (requiere índice datetime)
+        data = df.set_index("datetime").copy()
+        mpf.plot(data, type="candle", style="charles", title=title, volume=False, figratio=(12,6))
+        return None
+    else:
+        # plotly candlestick
+        pio.renderers.default = "browser"
+        fig = go.Figure(data=[go.Candlestick(
+            x=df["datetime"],
+            open=df["Open"],
+            high=df["High"],
+            low=df["Low"],
+            close=df["Close"],
+            name=symbol
+        )])
+        fig.update_layout(
+            title=title,
+            xaxis_title="Datetime",
+            yaxis_title="Price",
+            xaxis_rangeslider_visible=False,
+            template="plotly_white"
+        )
+        if save_html:
+            fig.write_html(save_html)
+        if show:
+            try:
+                fig.show()
+            except Exception:
+                # fallback: guardar html temporal
+                tmp = os.path.join(tempfile.gettempdir(), f"{symbol}_{timeframe}_candles.html")
+                fig.write_html(tmp, auto_open=True)
+                print(f"Gráfica guardada en: {tmp}")
+        return fig

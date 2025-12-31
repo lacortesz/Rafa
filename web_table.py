@@ -1,6 +1,9 @@
 import os
-from flask import Flask, render_template_string, send_file
+from flask import Flask, render_template_string, send_file, request
 import pandas as pd
+from urllib.parse import quote_plus, unquote_plus
+import utils
+import plotly.io as pio
 
 app = Flask(__name__)
 
@@ -21,6 +24,7 @@ HTML_TEMPLATE = """
     .cell-bull { color: green; font-weight: 700; }
     .cell-bear { color: red; font-weight: 700; }
     .cell-none { color: #666; }
+    a.cell-link { text-decoration: none; color: inherit; display:block; width:100%; height:100%; }
   </style>
 </head>
 <body>
@@ -28,9 +32,25 @@ HTML_TEMPLATE = """
   {% if table_html %}
     {{ table_html | safe }}
   {% else %}
-    <p>No hay datos. Ejecuta rafa_main.py para generar <code>info.csv</code>.</p>
+    <p>No hay datos. Ejecuta <code>rafa_main.py</code> para generar <code>info.csv</code>.</p>
   {% endif %}
   <p class="small">Archivo: {{ path }}</p>
+</body>
+</html>
+"""
+
+CHART_TEMPLATE = """
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Chart - {{ symbol }} {{ timeframe }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+  <h2>{{ symbol }} — {{ timeframe }}</h2>
+  <p><a href="/">← Volver</a></p>
+  <div>{{ fig_html | safe }}</div>
 </body>
 </html>
 """
@@ -66,57 +86,88 @@ def index():
 
     df = pd.read_csv(path)
 
-    # detectar columnas relevantes
     symbol_col = _find_column(df, ['Símbolo', 'Simbolo', 'Symbol', 'Ticker', 'Name'])
     timeframe_col = _find_column(df, ['Timeframe', 'Intervalo', 'Interval', 'Period'])
     trend_col = _find_column(df, ['Tendencia', 'Trend', 'tendencia', 'Trend'])
 
-    # Si no hay columna timeframe: eliminar cualquier columna que haga referencia a timeframe
-    timeframe_candidates = ['Timeframe', 'Intervalo', 'Interval', 'Period']
-    if timeframe_col is None:
-        to_drop = [c for c in df.columns if c.strip().lower() in [t.lower() for t in timeframe_candidates]]
-        if to_drop:
-            df = df.drop(columns=to_drop, errors='ignore')
-
-    # Si disponemos de symbol + timeframe + trend -> pivot como antes
     if symbol_col and timeframe_col and trend_col:
         pivot = df[[symbol_col, timeframe_col, trend_col]].dropna(subset=[symbol_col, timeframe_col])
         pivot_table = pivot.pivot_table(index=symbol_col, columns=timeframe_col, values=trend_col, aggfunc='first')
         pivot_table = pivot_table.fillna("")
 
-        # normalizar nombres de columnas y construir mapeo normalizado -> original
-        orig_cols = list(pivot_table.columns)
-        norm_to_orig = {}
-        for c in orig_cols:
-            norm = str(c).strip().lower().replace(" ", "")
-            norm_to_orig[norm] = c
+        # Construir HTML con enlaces clicables en cada celda
+        norm_index = list(pivot_table.index)
+        cols = list(pivot_table.columns)
 
-        # ordenar columnas en el orden deseado (izquierda -> derecha)
-        desired_order_norm = ['1d', '4h', '1h', '15m']
-        cols_present = [norm_to_orig[n] for n in desired_order_norm if n in norm_to_orig]
-        other_cols = [c for c in orig_cols if c not in cols_present]
-        ordered_cols = cols_present + other_cols
-        pivot_table = pivot_table.loc[:, ordered_cols] if ordered_cols else pivot_table
+        html = ['<table>']
+        # header
+        html.append('<thead><tr><th>Symbol</th>')
+        for c in cols:
+            html.append(f'<th>{c}</th>')
+        html.append('</tr></thead>')
+        # body
+        html.append('<tbody>')
+        for sym in norm_index:
+            html.append(f'<tr><td>{sym}</td>')
+            for c in cols:
+                cell_val = pivot_table.loc[sym, c]
+                display_html = _colorize_trend(cell_val)
+                # link target to chart route (encode params)
+                sym_q = quote_plus(str(sym))
+                tf_q = quote_plus(str(c))
+                link = f'/chart?symbol={sym_q}&timeframe={tf_q}'
+                cell_html = f'<a class="cell-link" href="{link}" target="_blank">{display_html or "–"}</a>'
+                html.append(f'<td>{cell_html}</td>')
+            html.append('</tr>')
+        html.append('</tbody></table>')
+        table_html = "\n".join(html)
 
-        # aplicar coloreado y reset index para mostrar símbolo en primera columna
-        styled = pivot_table.applymap(_colorize_trend).reset_index()
-        table_html = styled.to_html(index=False, escape=False, classes="table table-striped")
         return render_template_string(HTML_TEMPLATE, table_html=table_html, path=path)
 
-    # En caso contrario (no hay timeframe column) mostrar la tabla sin la columna timeframe
-    # Asegurar que el símbolo esté como primera columna si existe
+    # Fallback: mostrar tabla simple coloreada
     if symbol_col and symbol_col in df.columns:
         cols = [symbol_col] + [c for c in df.columns if c != symbol_col]
     else:
         cols = list(df.columns)
 
     df_display = df[cols].copy()
-    # colorear la columna de tendencia si existe
     if trend_col and trend_col in df_display.columns:
         df_display[trend_col] = df_display[trend_col].apply(_colorize_trend)
 
     table_html = df_display.to_html(index=False, escape=False, classes="table table-striped")
     return render_template_string(HTML_TEMPLATE, table_html=table_html, path=path)
+
+@app.route("/chart")
+def chart():
+    symbol = request.args.get("symbol")
+    timeframe = request.args.get("timeframe")
+    if not symbol or not timeframe:
+        return "Please provide symbol and timeframe query params", 400
+    # unquote in case values were encoded twice
+    symbol = unquote_plus(symbol)
+    timeframe = unquote_plus(timeframe)
+
+    try:
+        df = utils.load_bars_csv(symbol, timeframe, out_dir=os.path.join(os.getcwd(), "received_data"))
+    except FileNotFoundError:
+        return f"CSV not found for {symbol} {timeframe}. Expected file: received_data/{symbol}_{timeframe}.csv<br><a href='/'>Volver</a>"
+    except Exception as e:
+        return f"Error loading CSV: {e}<br><a href='/'>Volver</a>"
+
+    # crear figura plotly (rápido y sin abrir interfaz gráfica)
+    import plotly.graph_objects as go
+    fig = go.Figure(data=[go.Candlestick(
+        x=df["datetime"],
+        open=df["Open"],
+        high=df["High"],
+        low=df["Low"],
+        close=df["Close"],
+        name=symbol
+    )])
+    fig.update_layout(title=f"{symbol} - {timeframe}", xaxis_title="Datetime", yaxis_title="Price", xaxis_rangeslider_visible=False, template="plotly_white")
+    fig_html = fig.to_html(full_html=False, include_plotlyjs='cdn')
+
+    return render_template_string(CHART_TEMPLATE, symbol=symbol, timeframe=timeframe, fig_html=fig_html)
 
 @app.route("/download")
 def download():

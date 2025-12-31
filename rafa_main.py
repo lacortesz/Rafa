@@ -52,7 +52,8 @@ if __name__ == "__main__":
             #print(data['DatetimeStr'])
 
             #adicionar indicadores tecnicos
-            utils.adicionar_indicadores(data)
+            
+            
 
             print(f"Datos descargados para {name} ({symbol}):")
             print(data.tail(10))
@@ -81,7 +82,7 @@ if __name__ == "__main__":
 
             print(info.tail())
 
-            #utils.graficar_pivots_soportes_resistencias(data, df_pivots, soportes, resistencias, symbol, tendencia, rsi, name=name, timeframe=intervalo)
+            utils.graficar_pivots_soportes_resistencias(data, df_pivots, soportes, resistencias, symbol, tendencia, rsi, name=name, timeframe=intervalo)
 
     info.to_csv('info.csv', index=False)
 

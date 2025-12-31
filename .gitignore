@@ -1,0 +1,5 @@
+.rafa-env/
+received_data/
+received_data - copia/
+*.csv
+logs/

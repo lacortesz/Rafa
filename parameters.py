@@ -8,6 +8,8 @@ news_check_minutes = 20
 pivotStrength = 2
 trendStrength = 3
 
+OUT_DIR = r"C:\repo_luis\Rafa\received_data"
+
 symbols = {
     "E-mini S&P 500": "ES=F",
     "E-mini Nasdaq 100": "NQ=F",
@@ -61,3 +63,4 @@ intervalos_ = {
     '1h': '1wk',
     '15m': '3d'
 }
+
