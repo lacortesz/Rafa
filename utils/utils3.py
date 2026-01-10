@@ -24,30 +24,30 @@ def download_data(ticker, start, end, interval):
 def get_pivots(data, pivotStrength, trendStrength):
 	pivots = []
 	for i in range(len(data)-pivotStrength, ):
-		high = data['High'].iloc[i]
-		low = data['Low'].iloc[i] 
-		pivotHigh = True
-		pivotLow = True
+		high = data['high'].iloc[i]
+		low = data['low'].iloc[i] 
+		pivothigh = True
+		pivotlow = True
 		for j in range(-pivotStrength, pivotStrength):
 			if (j == 0):
 				continue
-			if (data['High'].iloc[i+j] > high):
-				pivotHigh = False
+			if (data['high'].iloc[i+j] > high):
+				pivothigh = False
 				break
 
-		# Pivot High
-		if pivotHigh:
+		# Pivot high
+		if pivothigh:
 			pivots.append({'type': 'high', 'index': data.index[i], 'value': high})
 
 		for j in range(-pivotStrength, pivotStrength):
 			if (j == 0):
 				continue
-			if (data['Low'].iloc[i+j] < low):
-				pivotLow = False
+			if (data['low'].iloc[i+j] < low):
+				pivotlow = False
 				break
 		
-		# Pivot Low
-		if pivotLow:
+		# Pivot low
+		if pivotlow:
 			pivots.append({'type': 'low', 'index': data.index[i], 'value': low})
 	
     # Devolver los últimos 3 pivots	
@@ -199,7 +199,7 @@ def identificar_pivots(df, n=2):
     """
     Identifica pivots en un DataFrame de precios OHLC.
     Parámetros:
-        df (pd.DataFrame): debe contener columnas ['High', 'Low']
+        df (pd.DataFrame): debe contener columnas ['high', 'low']
         n (int): número de velas a cada lado para confirmar un pivot
     Retorna:
         pd.DataFrame con columnas adicionales:
@@ -211,12 +211,12 @@ def identificar_pivots(df, n=2):
     df['pivot_label'] = None
 
     for i in range(n, len(df) - n):
-        # Pivot High
-        if df['High'].iloc[i] == max(df['High'].iloc[i - n:i + n + 1]):
+        # Pivot high
+        if df['high'].iloc[i] == max(df['high'].iloc[i - n:i + n + 1]):
             df.loc[df.index[i], 'pivot_high'] = True
 
-        # Pivot Low
-        if df['Low'].iloc[i] == min(df['Low'].iloc[i - n:i + n + 1]):
+        # Pivot low
+        if df['low'].iloc[i] == min(df['low'].iloc[i - n:i + n + 1]):
             df.loc[df.index[i], 'pivot_low'] = True
 
     # Clasificar pivots como HH, LH, HL, LL
@@ -226,28 +226,28 @@ def identificar_pivots(df, n=2):
     for i in range(len(df)):
         if df['pivot_high'].iloc[i]:
             if last_high is not None:
-                label = "HH" if df['High'].iloc[i] > last_high else "LH"
+                label = "HH" if df['high'].iloc[i] > last_high else "LH"
             else:
                 label = "H"
             df.loc[df.index[i], 'pivot_label'] = label
-            last_high = df['High'].iloc[i]
+            last_high = df['high'].iloc[i]
 
         elif df['pivot_low'].iloc[i]:
             if last_low is not None:
-                label = "HL" if df['Low'].iloc[i] > last_low else "LL"
+                label = "HL" if df['low'].iloc[i] > last_low else "LL"
             else:
                 label = "L"
             df.loc[df.index[i], 'pivot_label'] = label
-            last_low = df['Low'].iloc[i]
+            last_low = df['low'].iloc[i]
 
     return limpiar_pivots(df)
 
 def limpiar_pivots(df):
     """
     Elimina pivots redundantes:
-    - Si hay dos pivots High seguidos, deja solo el mayor.
-    - Si hay dos pivots Low seguidos, deja solo el menor.
-    - Si hay dos pivots en la misma fecha, prioriza el High.
+    - Si hay dos pivots high seguidos, deja solo el mayor.
+    - Si hay dos pivots low seguidos, deja solo el menor.
+    - Si hay dos pivots en la misma fecha, prioriza el high.
     """
     df = df.copy()
 
@@ -265,13 +265,13 @@ def limpiar_pivots(df):
         if pivots['tipo'].iloc[i] == pivots['tipo'].iloc[i - 1]:
             if pivots['tipo'].iloc[i] == 'H':
                 # Dejar solo el más alto
-                if pivots['High'].iloc[i] > pivots['High'].iloc[i - 1]:
+                if pivots['high'].iloc[i] > pivots['high'].iloc[i - 1]:
                     indices_a_eliminar.append(prev_idx)
                 else:
                     indices_a_eliminar.append(curr_idx)
             else:
                 # Dejar solo el más bajo
-                if pivots['Low'].iloc[i] < pivots['Low'].iloc[i - 1]:
+                if pivots['low'].iloc[i] < pivots['low'].iloc[i - 1]:
                     indices_a_eliminar.append(prev_idx)
                 else:
                     indices_a_eliminar.append(curr_idx)
@@ -283,51 +283,125 @@ def limpiar_pivots(df):
 
     # Eliminar los índices marcados
     df.loc[indices_a_eliminar, ['pivot_high', 'pivot_low', 'pivot_label']] = [False, False, None]
-
+    
     return df
 
 def determinar_tendencia(df, n=3):
     """
-    Determina la tendencia basada en los últimos 3 pivots (H/L).
+    Determina la 
+      basada en los últimos 3 pivots (H/L).
     Reglas:
-      - Si últimos 3 pivots son: Low -> High -> Low mayor → Bullish
-      - Si últimos 3 pivots son: High -> Low -> High menor → Bearish
+      - Si últimos 3 pivots son: low -> high -> low mayor → Bullish
+      - Si últimos 3 pivots son: high -> low -> high menor → Bearish
       - En cualquier otro caso → Sin tendencia
     """
-    pivots = df[df['pivot_label'].notnull()][['pivot_high', 'pivot_low', 'pivot_label', 'High', 'Low']]
+    pivots = df[df['pivot_label'].notnull()][['pivot_high', 'pivot_low', 'pivot_label', 'high', 'low']]
 
     if len(pivots) < n:
         return "flat"
 
-    last3 = pivots.tail(3)
+    last3 = pivots.tail(n)
 
     tipos = []
     valores = []
     for _, row in last3.iterrows():
         if row['pivot_high']:
             tipos.append("H")
-            valores.append(row['High'])
+            valores.append(row['high'])
         elif row['pivot_low']:
             tipos.append("L")
-            valores.append(row['Low'])
+            valores.append(row['low'])
 
     if len(tipos) < 3:
         return "flat"
 
-    if (tipos == ["L", "H", "L"] or tipos == ["H", "L", "H"]) and valores[2] > valores[0]:
+    if (tipos == ["L", "H", "L"] or tipos == ["H", "L", "H"]) and valores[2] < valores[0]:
         return "bullish"
-    elif (tipos == ["H", "L", "H"] or tipos == ["L", "H", "L"]) and valores[2] < valores[0]:
+    elif (tipos == ["H", "L", "H"] or tipos == ["L", "H", "L"]) and valores[2] > valores[0]:
         return "bearish"
     else:
         return "flat"
 
+def determinar_tendencia_v2(pivots, trendStrength=3):
+    """
+    Determina la tendencia basada en los últimos pivotes clasificados.
+    Reglas:
+    bullish: secuencia de HH y HL y el valor low de las vedlas siguientes al ultimo pivot HL son mayores al low del pivot HL
+    bearish: secuencia de LL y LH y el valor high de las vedlas siguientes al ultimo pivot LH son menores al high del pivot LH
+    
+    parametros:
+        pivots: lista de diccionarios con pivots clasificados
+        trendStrength: número de pivotes a considerar para determinar la tendencia
+    retorna:
+        'bullish', 'bearish' o 'flat'
+    """
+    
+
+    
+    # Si hay menos pivotes que trendStrength, no hay tendencia definida.
+    if len(pivots) < trendStrength:
+        return 'flat'
+    
+    #Para tendecial bullish, la condicion es que sea una secuencia de HH y HL
+    trend = 'bullish'
+    for pivot in pivots[-trendStrength:]:
+        if pivot['type2'] == 'HH' or pivot['type2'] == 'HL':
+            continue
+        else:
+            trend = 'flat'
+            break
+        
+    if trend == 'bullish':
+        return trend
+
+    #Para tendecial bearish, la condicion es que sea una secuencia de LL y LH
+    trend = 'bearish'
+    for pivot in pivots[-trendStrength:]:
+        if pivot['type2'] == 'LL' or pivot['type2'] == 'LH':
+            continue
+        else:
+            trend = 'flat'
+            break
+    
+    return trend
+
+
+#def validar_valores_siguientes(df, index, trend):
+    """
+    valida que:
+    para trend bullish:
+        - despues del ultimo pivot HL, los siguientes n valores low sean mayores al low del pivot HL
+    para trend bearish:
+        - despues del ultimo pivot LH, los siguientes n valores high sean menores al high del pivot LH  
+    
+    parametros: 
+        df: DataFrame con datos OHLC
+        index: índice del pivot a validar
+        trend: 'bullish' o 'bearish'
+    retorna:
+        True si cumple la condicion, False en caso contrario  
+    
+
+    tipo_pivot = None   
+    if trend == 'bullish':
+        pivot_low = df.loc[index, 'low']
+        
+        
+    elif trend == 'bearish' and tipo_pivot == 'LH':
+        pivot_high = df.loc[index, 'high']
+        siguientes_highs = df['high'].loc[index:].head(n)
+        return all(h < pivot_high for h in siguientes_highs)
+    return True
+
+    """
+
 def identificar_soportes_resistencias(df, window=10, tolerance=0.005, top_n=2):
     """
     Identifica niveles de soporte y resistencia y devuelve los top_n más
-    cercanos al precio actual (último Close).
+    cercanos al precio actual (último close).
 
     Parámetros:
-        df : pd.DataFrame con columnas ['High','Low','Close']
+        df : pd.DataFrame con columnas ['high','low','close']
         window : int para argrelextrema
         tolerance : float para agrupar niveles muy cercanos (proporcional)
         top_n : int número de niveles por tipo a devolver (por defecto 2)
@@ -335,15 +409,15 @@ def identificar_soportes_resistencias(df, window=10, tolerance=0.005, top_n=2):
         soportes_sel, resistencias_sel : listas con hasta top_n niveles (float)
     """
     data = df.copy()
-    data = data.dropna(subset=['High','Low','Close'])
+    data = data.dropna(subset=['high','low','close'])
     if data.empty:
         return [], []
 
-    highs_idx = argrelextrema(data['High'].values, np.greater_equal, order=window)[0]
-    lows_idx = argrelextrema(data['Low'].values, np.less_equal, order=window)[0]
+    highs_idx = argrelextrema(data['high'].values, np.greater_equal, order=window)[0]
+    lows_idx = argrelextrema(data['low'].values, np.less_equal, order=window)[0]
 
-    pivote_highs = data['High'].iloc[highs_idx].values.tolist()
-    pivote_lows = data['Low'].iloc[lows_idx].values.tolist()
+    pivote_highs = data['high'].iloc[highs_idx].values.tolist()
+    pivote_lows = data['low'].iloc[lows_idx].values.tolist()
 
     def agrupar_niveles(niveles):
         niveles = sorted(set(niveles))
@@ -362,7 +436,7 @@ def identificar_soportes_resistencias(df, window=10, tolerance=0.005, top_n=2):
     soportes = agrupar_niveles(pivote_lows)
 
     # seleccionar los top_n más cercanos al precio actual (último close)
-    precio_actual = float(data['Close'].iloc[-1])
+    precio_actual = float(data['close'].iloc[-1])
     def elegir_mas_cercanos(niveles, n):
         if not niveles:
             return []
@@ -386,34 +460,34 @@ def calcular_rsi(series, period=14):
 
 def adicionar_indicadores(df):
 
-    best_fast, best_slow = buscar_smas_optimizados(df['Close'])
+    best_fast, best_slow = buscar_smas_optimizados(df['close'])
     print(f"Mejores SMAs encontradas: Fast={best_fast}, Slow={best_slow}")
 
     #Adds technical indicators to the DataFrame.
-    df['SMA_FAST'] = df['Close'].rolling(window=best_fast).mean()
+    df['SMA_FAST'] = df['close'].rolling(window=best_fast).mean()
     #df['SMA_FAST_DIFF'] = df['SMA_FAST'] - df['SMA_FAST'].shift(1)
     
-    df['SMA_SLOW'] = df['Close'].rolling(window=best_slow).mean()
-    #df['SMA_SLOW_DIFF'] = df['SMA_SLOW'] - df['SMA_SLOW'].shift(1)
+    df['SMA_Slow'] = df['close'].rolling(window=best_slow).mean()
+    #df['SMA_Slow_DIFF'] = df['SMA_Slow'] - df['SMA_Slow'].shift(1)
 
-    #df['SMA_DIFFERENCE'] = df['SMA_FAST'] - df['SMA_SLOW']
+    #df['SMA_DIFFERENCE'] = df['SMA_FAST'] - df['SMA_Slow']
     
-    #df['EMA_10'] = df['Close'].ewm(span=10, adjust=False).mean()
+    #df['EMA_10'] = df['close'].ewm(span=10, adjust=False).mean()
     
-    df['RSI_14'] = ta.momentum.RSIIndicator(df['Close'], window=14).rsi()
+    df['RSI_14'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
     #df['RSI_14_DIFF'] = df['RSI_14'] - df['RSI_14'].shift(1)
     
-    #df['Low_prev1'] = df['Low'].shift(1)
-    #df['Low_prev2'] = df['Low'].shift(2)
-    #df['High_prev1'] = df['High'].shift(1)
-    #df['High_prev2'] = df['High'].shift(2)
+    #df['low_prev1'] = df['low'].shift(1)
+    #df['low_prev2'] = df['low'].shift(2)
+    #df['high_prev1'] = df['high'].shift(1)
+    #df['high_prev2'] = df['high'].shift(2)
 
     #if not df.index.name or df.index.name != 'Datetime':
     #    df.index = pd.to_datetime(df.index)
-    #max_high_per_day = df['High'].groupby(df.index.date).transform('max')
-    #min_low_per_day = df['Low'].groupby(df.index.date).transform('min')
-    #df['IsMaxHighOfDay'] = (df['High'] == max_high_per_day).astype(int)
-    #df['IsMinLowOfDay'] = (df['Low'] == min_low_per_day).astype(int)
+    #max_high_per_day = df['high'].groupby(df.index.date).transform('max')
+    #min_low_per_day = df['low'].groupby(df.index.date).transform('min')
+    #df['IsMaxhighOfDay'] = (df['high'] == max_high_per_day).astype(int)
+    #df['IsMinlowOfDay'] = (df['low'] == min_low_per_day).astype(int)
    
     # Delete rows con NaN
     df = df.dropna()
@@ -488,9 +562,9 @@ def graficar_pivots(df, symbol="Activo"):
     # Copia y limpieza de datos OHLC
     data = df.copy()
     data.index = pd.to_datetime(data.index)
-    for c in ['Open', 'High', 'Low', 'Close']:
+    for c in ['open', 'high', 'low', 'close']:
         data[c] = pd.to_numeric(data[c], errors='coerce')
-    data = data.dropna(subset=['Open', 'High', 'Low', 'Close'])
+    data = data.dropna(subset=['open', 'high', 'low', 'close'])
     if data.empty:
         print("No hay datos OHLC completos para graficar.")
         return
@@ -499,37 +573,37 @@ def graficar_pivots(df, symbol="Activo"):
 
     fig = go.Figure(data=[go.Candlestick(
         x=data.index,
-        open=data['Open'],
-        high=data['High'],
-        low=data['Low'],
-        close=data['Close'],
+        open=data['open'],
+        high=data['high'],
+        low=data['low'],
+        close=data['close'],
         name='Precio'
     )])
 
-    # Pivots High
+    # Pivots high
     df_highs = data.loc[df.index[df['pivot_high']]] if 'pivot_high' in df.columns else data.iloc[0:0]
     if not df_highs.empty:
         fig.add_trace(go.Scatter(
             x=df_highs.index,
-            y=df_highs['High'],
+            y=df_highs['high'],
             mode='markers+text',
             marker=dict(color='red', size=10),
             text=df_highs.get('pivot_label', None),
             textposition='top center',
-            name='Pivots High'
+            name='Pivots high'
         ))
 
-    # Pivots Low
+    # Pivots low
     df_lows = data.loc[df.index[df['pivot_low']]] if 'pivot_low' in df.columns else data.iloc[0:0]
     if not df_lows.empty:
         fig.add_trace(go.Scatter(
             x=df_lows.index,
-            y=df_lows['Low'],
+            y=df_lows['low'],
             mode='markers+text',
             marker=dict(color='green', size=10),
             text=df_lows.get('pivot_label', None),
             textposition='bottom center',
-            name='Pivots Low'
+            name='Pivots low'
         ))
 
     fig.update_layout(
@@ -561,17 +635,17 @@ def graficar_soportes_resistencias_plotly(df, soportes, resistencias, titulo="So
     """
     data = df.copy()
     data.index = pd.to_datetime(data.index)
-    data = data.dropna(subset=['Open','High','Low','Close'])
+    data = data.dropna(subset=['open','high','low','close'])
     if data.empty:
         print("No hay datos OHLC completos para graficar.")
         return
 
     fig = go.Figure(data=[go.Candlestick(
         x=data.index,
-        open=data['Open'],
-        high=data['High'],
-        low=data['Low'],
-        close=data['Close'],
+        open=data['open'],
+        high=data['high'],
+        low=data['low'],
+        close=data['close'],
         name='Precio'
     )])
 
@@ -609,56 +683,56 @@ def graficar_soportes_resistencias_plotly(df, soportes, resistencias, titulo="So
         fig.write_html(tmp, auto_open=True)
 
 def graficar_pivots_soportes_resistencias(df, pivots, soportes, resistencias, symbol="Activo", tendencia="", rsi=0,
-                                          sma_fast_col='SMA_FAST', sma_slow_col='SMA_SLOW', name="defaul", timeframe="1D"):
+                                          sma_fast_col='SMA_FAST', sma_slow_col='SMA_Slow', name="defaul", timeframe="1D"):
     """
     Grafica los pivotes, soportes y resistencias en un solo gráfico.
     """
     data = df.copy()
     data.index = pd.to_datetime(data.index)
-    data = data.dropna(subset=['Open','High','Low','Close'])
+    data = data.dropna(subset=['open','high','low','close'])
     if data.empty:
         print("No hay datos OHLC completos para graficar.")
         return
 
     fig = go.Figure(data=[go.Candlestick(
         x=data.index,
-        open=data['Open'],
-        high=data['High'],
-        low=data['Low'],
-        close=data['Close'],
+        open=data['open'],
+        high=data['high'],
+        low=data['low'],
+        close=data['close'],
         name='Precio'
     )])
 
     data_pivots = pivots.copy()
     data_pivots.index = pd.to_datetime(data_pivots.index)
-    for c in ['Open', 'High', 'Low', 'Close']:
+    for c in ['open', 'high', 'low', 'close']:
         data_pivots[c] = pd.to_numeric(data_pivots[c], errors='coerce')
-    data_pivots = data_pivots.dropna(subset=['Open', 'High', 'Low', 'Close'])
+    data_pivots = data_pivots.dropna(subset=['open', 'high', 'low', 'close'])
 
     #pivots high
     df_highs = data_pivots.loc[pivots.index[pivots['pivot_high']]] if 'pivot_high' in pivots.columns else data_pivots.iloc[0:0]
     if not df_highs.empty:
         fig.add_trace(go.Scatter(
             x=df_highs.index,
-            y=df_highs['High'],
+            y=df_highs['high'],
             mode='markers+text',
             marker=dict(color='red', size=10),
             text=df_highs.get('pivot_label', None),
             textposition='top center',
-            name='Pivots High'
+            name='Pivots high'
         ))
 
-    # Pivots Low
+    # Pivots low
     df_lows = data_pivots.loc[pivots.index[pivots['pivot_low']]] if 'pivot_low' in pivots.columns else data_pivots.iloc[0:0]
     if not df_lows.empty:
         fig.add_trace(go.Scatter(
             x=df_lows.index,
-            y=df_lows['Low'],
+            y=df_lows['low'],
             mode='markers+text',
             marker=dict(color='green', size=10),
             text=df_lows.get('pivot_label', None),
             textposition='bottom center',
-            name='Pivots Low'
+            name='Pivots low'
         ))
 
     # Graficar soportes
@@ -831,12 +905,12 @@ def save_bars_csv(payload, out_dir=None, add_indicators=True):
                 df_combined = df_combined.sort_values(by="datetime").reset_index(drop=True)
             else:
                 df_combined = df_combined.drop_duplicates().reset_index(drop=True)
-            if add_indicators and "Close" in df_combined.columns:
+            if add_indicators and "close" in df_combined.columns:
                 adicionar_indicadores(df_combined)
             df_combined.to_csv(out_path, index=False)
             stored_rows = len(df_combined)
         else:
-            if add_indicators and "Close" in df.columns:
+            if add_indicators and "close" in df.columns:
                 adicionar_indicadores(df)
             df.to_csv(out_path, index=False)
             stored_rows = len(df)
@@ -850,7 +924,7 @@ def load_bars_csv(symbol, timeframe, out_dir=None):
     """
     Carga el CSV correspondiente a (symbol, timeframe) desde out_dir y
     normaliza la columna 'datetime' y las columnas OHLC.
-    Devuelve DataFrame con columna 'datetime' (datetime64) y columnas Open/High/Low/Close (numéricas).
+    Devuelve DataFrame con columna 'datetime' (datetime64) y columnas open/high/low/close (numéricas).
     """
     if out_dir is None:
         out_dir = os.path.join(os.getcwd(), "received_data")
@@ -871,9 +945,14 @@ def load_bars_csv(symbol, timeframe, out_dir=None):
         df = df.rename(columns={dt_col: "datetime"})
 
     # asegurar OHLC como numéricos
-    for c in ("Open", "High", "Low", "Close"):
+    for c in ("open", "high", "low", "close"):
         if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce")
+            # intentar conversión numérica; si fallan (p.ej. "0,6695" con coma decimal), reemplazar comas por puntos
+            s = df[c]
+            df[c] = pd.to_numeric(s, errors="coerce")
+            if df[c].isna().all():
+                s2 = s.astype(str).str.replace(",", ".", regex=False)
+                df[c] = pd.to_numeric(s2, errors="coerce")
         else:
             raise ValueError(f"Missing required column '{c}' in CSV {path}")
 
@@ -903,10 +982,10 @@ def plot_candles_from_csv(symbol, timeframe, out_dir=None, title=None, show=True
         pio.renderers.default = "browser"
         fig = go.Figure(data=[go.Candlestick(
             x=df["datetime"],
-            open=df["Open"],
-            high=df["High"],
-            low=df["Low"],
-            close=df["Close"],
+            open=df["open"],
+            high=df["high"],
+            low=df["low"],
+            close=df["close"],
             name=symbol
         )])
         fig.update_layout(

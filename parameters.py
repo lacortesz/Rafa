@@ -10,7 +10,7 @@ trendStrength = 3
 
 OUT_DIR = r"C:\repo_luis\Rafa\received_data"
 
-symbols = {
+symbols_ = {
     "E-mini S&P 500": "ES=F",
     "E-mini Nasdaq 100": "NQ=F",
     "E-mini Dow Jones": "YM=F",
@@ -30,6 +30,11 @@ symbols = {
     #"30-Year T-Bond": "ZB=F"
  
 }
+
+symbols = {
+    "E-mini S&P 500": "ES=F"
+}
+
 
 '''
     ,

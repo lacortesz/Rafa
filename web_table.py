@@ -2,10 +2,11 @@ import os
 from flask import Flask, render_template_string, send_file, request
 import pandas as pd
 from urllib.parse import quote_plus, unquote_plus
-import utils
+import utils.utils3 as utils3
 import plotly.io as pio
 
 app = Flask(__name__)
+
 
 HTML_TEMPLATE = """
 <!doctype html>
@@ -29,6 +30,7 @@ HTML_TEMPLATE = """
 </head>
 <body>
   <h2>Resumen: Tendencia por Timeframe</h2>
+  <p><a href="/tendencias">Ver tabla de tendencias desde <code>tendencias.csv</code></a></p>
   {% if table_html %}
     {{ table_html | safe }}
   {% else %}
@@ -137,6 +139,51 @@ def index():
     table_html = df_display.to_html(index=False, escape=False, classes="table table-striped")
     return render_template_string(HTML_TEMPLATE, table_html=table_html, path=path)
 
+@app.route("/tendencias")
+def tendencias():
+    path = os.path.join(os.getcwd(), "tendencias.csv")
+    if not os.path.exists(path):
+        return render_template_string(HTML_TEMPLATE, table_html=None, path=path)
+    try:
+        df = pd.read_csv(path, header=None, names=['name','trend'])
+    except Exception as e:
+        return render_template_string(HTML_TEMPLATE, table_html=f"<p>Error leyendo {path}: {e}</p>", path=path)
+    if df.empty:
+        return render_template_string(HTML_TEMPLATE, table_html=None, path=path)
+
+    # split name into instrument and timeframe by the first underscore
+    split = df['name'].str.split('_', n=1, expand=True)
+    df['instrument'] = split[0]
+    df['timeframe'] = split[1]
+
+    pivot_table = df.pivot_table(index='instrument', columns='timeframe', values='trend', aggfunc='first').fillna("")
+
+    html = ['<table>']
+    # header
+    html.append('<thead><tr><th>Instrumento</th>')
+    for c in pivot_table.columns:
+        html.append(f'<th>{c}</th>')
+    html.append('</tr></thead>')
+    # body
+    html.append('<tbody>')
+    for sym in pivot_table.index:
+        html.append(f'<tr><td>{sym}</td>')
+        for c in pivot_table.columns:
+            cell_val = pivot_table.loc[sym, c]
+            display_html = _colorize_trend(cell_val)
+            # link to chart route
+            sym_q = quote_plus(str(sym))
+            tf_q = quote_plus(str(c))
+            link = f'/chart?symbol={sym_q}&timeframe={tf_q}'
+            cell_html = f'<a class="cell-link" href="{link}" target="_blank">{display_html or "–"}</a>'
+            html.append(f'<td>{cell_html}</td>')
+        html.append('</tr>')
+    html.append('</tbody></table>')
+    table_html = "\n".join(html)
+
+    return render_template_string(HTML_TEMPLATE, table_html=table_html, path=path)
+
+
 @app.route("/chart")
 def chart():
     symbol = request.args.get("symbol")
@@ -148,7 +195,7 @@ def chart():
     timeframe = unquote_plus(timeframe)
 
     try:
-        df = utils.load_bars_csv(symbol, timeframe, out_dir=os.path.join(os.getcwd(), "received_data"))
+        df = utils3.load_bars_csv(symbol, timeframe, out_dir=os.path.join(os.getcwd(), "received_data"))
     except FileNotFoundError:
         return f"CSV not found for {symbol} {timeframe}. Expected file: received_data/{symbol}_{timeframe}.csv<br><a href='/'>Volver</a>"
     except Exception as e:
@@ -158,10 +205,10 @@ def chart():
     import plotly.graph_objects as go
     fig = go.Figure(data=[go.Candlestick(
         x=df["datetime"],
-        open=df["Open"],
-        high=df["High"],
-        low=df["Low"],
-        close=df["Close"],
+        open=df["open"],
+        high=df["high"],
+        low=df["low"],
+        close=df["close"],
         name=symbol
     )])
     fig.update_layout(title=f"{symbol} - {timeframe}", xaxis_title="Datetime", yaxis_title="Price", xaxis_rangeslider_visible=False, template="plotly_white")

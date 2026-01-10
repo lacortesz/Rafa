@@ -4,6 +4,7 @@
 import pandas as pd
 import yfinance as yf
 import utils
+import utils.utils4 as utils4
 import parameters   
 import os
 import subprocess
@@ -53,8 +54,7 @@ if __name__ == "__main__":
 
             #adicionar indicadores tecnicos
             
-            
-
+        
             print(f"Datos descargados para {name} ({symbol}):")
             print(data.tail(10))
 
@@ -82,8 +82,19 @@ if __name__ == "__main__":
 
             print(info.tail())
 
-            utils.graficar_pivots_soportes_resistencias(data, df_pivots, soportes, resistencias, symbol, tendencia, rsi, name=name, timeframe=intervalo)
+            #utils.graficar_pivots_soportes_resistencias(data, df_pivots, soportes, resistencias, symbol, tendencia, rsi, name=name, timeframe=intervalo)
+            
+            ## pruebas de utils4
+            
+            pivots = utils4.get_pivots(data, pivotStrength=parameters.pivotStrength) 
+            pivots = utils4.clean_pivots(pivots)
+            pivots = utils4.classify_pivots(pivots)
 
+            tendencia2 = utils4.get_trend(data, trendStrength=parameters.trendStrength)
+            #utils4.plot_chart(data, symbol, intervalo, tendencia2, pivots=df_pivots.to_dict('records'), soportes=soportes, resistencias=resistencias)
+            utils.graficar_pivots_soportes_resistencias(data, pivots, soportes, resistencias, symbol, tendencia, rsi, name=name, timeframe=intervalo)
+
+    # guardar info a CSV    
     info.to_csv('info.csv', index=False)
 
     # Ejecutar web_table.py al finalizar
