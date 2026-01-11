@@ -2,11 +2,17 @@ import asyncio
 import websockets
 import json
 import os
-import utility.parameters as parameters
-import utility.utility as utility 
+import src.utility.parameters as parameters
+import src.utility.utility as utility 
+import requests
 
+# Inicializa variables globales
+## Variables websockets
 clients = set()
 message_queue = asyncio.Queue(maxsize=10000)
+
+## Variables fastapi
+url = "http://localhost:8000/data_gateway"
 
 # Carpeta para guardar CSVs !!Revisar para configurar un file server
 OUT_DIR = parameters.OUT_DIR
@@ -50,12 +56,19 @@ async def worker(worker_id: int):
                 f"{summary['symbol']} {summary['timeframe']} "
                 f"rows={summary['stored_rows']}"
             )
+            await send_result({"Result": "Data saved", "details": summary})
 
         except Exception as e:
             print(f"[Worker {worker_id}] Error:", e)
+            await send_result({"Result": "Error", "details": str(e)})
 
         finally:
             message_queue.task_done()
+            
+async def send_result(result):
+    response = requests.post(url, json=result, timeout=10)
+    print("Status:", response.status_code)
+    print("Response:", response.json())
 
 
 async def main():
@@ -73,6 +86,4 @@ async def main():
 
     await server.wait_closed()
 
-if __name__ == "__main__":
-    asyncio.run(main())
 

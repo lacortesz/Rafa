@@ -1,4 +1,5 @@
-import uvicorn
+import asyncio
+import src.main as main_app
 
 if __name__ == "__main__":
-    uvicorn.run("src.main:app", host="0.0.0.0", port=8001)
+    asyncio.run(main_app.main())
