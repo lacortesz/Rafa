@@ -1,23 +1,38 @@
 import asyncio
 import websockets
 import json
+from confluent_kafka import Producer
 import os
 import src.utility.parameters as parameters
 import src.utility.utility as utility 
-import requests
+from src.utility.utility import init_kafka_producer, send_result as send_result_blocking
 
-# Inicializa variables globales
+#--- VARIABLES GLOBALES
 ## Variables websockets
 clients = set()
 message_queue = asyncio.Queue(maxsize=10000)
 
-## Variables fastapi
-url = "http://localhost:8000/data_gateway"
-
-# Carpeta para guardar CSVs !!Revisar para configurar un file server
+## Carpeta para guardar CSVs !!Revisar para configurar un file server
 OUT_DIR = parameters.OUT_DIR
 os.makedirs(OUT_DIR, exist_ok=True)
 
+## Kafka configuration (can be overridden via environment variables)
+#KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "localhost:8003")
+#KAFKA_TOPIC = os.getenv("KAFKA_TOPIC_DATA_GATEWAY", "data_gateway")
+KAFKA_BOOTSTRAP = "localhost:9092"
+KAFKA_TOPIC = "data_gateway"
+producer_conf = {"bootstrap.servers": KAFKA_BOOTSTRAP}
+producer = Producer(producer_conf)
+
+if producer is None:
+    print("Failed to initialize Kafka producer. Exiting.")
+    exit(1)
+else:
+    print(f"Kafka producer initialized (bootstrap={KAFKA_BOOTSTRAP}) {producer}")
+
+#--- FUNCIONES
+## WEBSOCKET FUNCTIONS
+### websocket handler
 async def handler(websocket, path=None):
     print(f"Cliente conectado {websocket.remote_address}")
     clients.add(websocket)
@@ -36,6 +51,7 @@ async def handler(websocket, path=None):
     finally:
         clients.discard(websocket)
 
+## websocket worker function
 async def worker(worker_id: int):
     loop = asyncio.get_running_loop()
 
@@ -56,20 +72,40 @@ async def worker(worker_id: int):
                 f"{summary['symbol']} {summary['timeframe']} "
                 f"rows={summary['stored_rows']}"
             )
-            await send_result({"Result": "Data saved", "details": summary})
-
         except Exception as e:
             print(f"[Worker {worker_id}] Error:", e)
-            await send_result({"Result": "Error", "details": str(e)})
-
         finally:
             message_queue.task_done()
-            
-async def send_result(result):
-    response = requests.post(url, json=result, timeout=10)
-    print("Status:", response.status_code)
-    print("Response:", response.json())
 
+        try:
+            await send_result({"Result": "Data saved", "details": summary})
+            print(f"[Worker {worker_id}] Sending result to Kafka: OK")
+
+        except Exception as e:
+            print(f"[Worker {worker_id}] Error sending result to Kafka:", e)
+
+## KAFKA FUNCTIONS
+### reporte de entrega mensaje
+def delivery_report(err, msg):
+    if err is not None:
+        print("Kafka delivery failed:", err)
+    else:
+        print(
+            f"✅ Message delivered to {msg.topic()} "
+            f"[partition {msg.partition()}] "
+            f"at offset {msg.offset()}"
+        )
+
+### enviar resultado a kafka (async)
+async def send_result(result, topic=KAFKA_TOPIC):
+    """Envía resultado a Kafka de forma asíncrona usando run_in_executor."""
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(
+        None,
+        send_result_blocking,
+        result,
+        topic
+    )
 
 async def main():
     server = await websockets.serve(

@@ -1,2 +1,3 @@
 websocket = 8001
-dta_gateway = 8002
+data_gateway = 8002
+orchestator = 8003
