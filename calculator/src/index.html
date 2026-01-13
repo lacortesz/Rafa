@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Calculadora de Lotes – Futuros CME</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            padding: 30px;
+        }
+        .card {
+            background: #ffffff;
+            max-width: 500px;
+            margin: auto;
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,.1);
+        }
+        h2 {
+            text-align: center;
+        }
+        label {
+            display: block;
+            margin-top: 12px;
+            font-weight: bold;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            margin-top: 4px;
+        }
+        button {
+            margin-top: 20px;
+            width: 100%;
+            padding: 10px;
+            background: #0066cc;
+            color: white;
+            border: none;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        button:hover {
+            background: #004c99;
+        }
+        .result {
+            margin-top: 20px;
+            background: #eef2f5;
+            padding: 15px;
+            border-radius: 6px;
+        }
+        .error {
+            color: red;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>📈 Calculadora de Lotes – Futuros CME</h2>
+
+    <label>Símbolo</label>
+    <select id="symbol">
+        <option value="6A">6A - Australian Dollar</option>
+        <option value="6B">6B - British Pound</option>
+        <option value="6E">6E - Euro FX</option>
+        <option value="6J">6J - Japanese Yen</option>
+        <option value="CL">CL - Crude Oil</option>
+        <option value="ES">ES - E-mini S&P 500</option>
+        <option value="GC">GC - Gold</option>
+        <option value="HG">HG - Copper</option>
+        <option value="NG">NG - Natural Gas</option>
+        <option value="NQ">NQ - E-mini Nasdaq 100</option>
+        <option value="SI">SI - Silver</option>
+        <option value="YM">YM - E-mini Dow</option>
+        <option value="ZC">ZC - Corn</option>
+        <option value="ZN">ZN - 10Y T-Note</option>
+        <option value="ZS">ZS - Soybeans</option>
+        <option value="ZW">ZW - Wheat</option>
+    </select>
+
+    <label>Tamaño de la cuenta (USD)</label>
+    <input type="number" id="account_size" value="50000">
+
+    <label>Riesgo (%)</label>
+    <input type="number" id="risk_percent" value="1" step="0.1">
+
+    <label>Precio de entrada</label>
+    <input type="number" id="entry_price" step="0.0001">
+
+    <label>Precio de stop</label>
+    <input type="number" id="stop_price" step="0.0001">
+
+    <button onclick="calcular()">Calcular lotes</button>
+
+    <div id="resultado" class="result" style="display:none;"></div>
+    <div id="error" class="error"></div>
+</div>
+
+<script>
+function calcular() {
+
+    document.getElementById("error").innerText = "";
+    document.getElementById("resultado").style.display = "none";
+
+    const data = {
+        symbol: document.getElementById("symbol").value,
+        account_size: parseFloat(document.getElementById("account_size").value),
+        risk_percent: parseFloat(document.getElementById("risk_percent").value),
+        entry_price: parseFloat(document.getElementById("entry_price").value),
+        stop_price: parseFloat(document.getElementById("stop_price").value)
+    };
+
+    fetch("http://127.0.0.1:8000/calcular-lotes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data)
+    })
+    .then(res => {
+        if (!res.ok) throw new Error("Error en el servidor");
+        return res.json();
+    })
+    .then(res => {
+        document.getElementById("resultado").style.display = "block";
+        document.getElementById("resultado").innerHTML = `
+            <b>Símbolo:</b> ${res.symbol}<br>
+            <b>Riesgo en dolares:</b> $${res.riesgo_dolares.toFixed(2)}<br>
+            <b>Ticks:</b> ${res.ticks.toFixed(2)}<br>
+            <b>Riesgo por contrato:</b> $${res.riesgo_por_contrato.toFixed(2)}<br>
+            <b>Contratros sin redondear:</b> ${res.contrato_decimales.toFixed(2)}<br>
+            <b>Contratos permitidos:</b> <b>${res.contratos}</b>
+        `;
+    })
+    .catch(err => {
+        document.getElementById("error").innerText = err.message;
+    });
+}
+</script>
+<script>
+document.addEventListener('DOMContentLoaded', async () => {
+  const select = document.getElementById('symbol');
+  const fallbackOptions = Array.from(select.options).map(o => ({ value: o.value, text: o.text }));
+
+  try {
+    const res = await fetch('specs/cme_contract_specs.json');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const specs = await res.json();
+    const symbols = Object.keys(specs).sort();
+
+    if (symbols.length === 0) throw new Error('No symbols in specs file');
+
+    select.innerHTML = '';
+    for (const s of symbols) {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s + (specs[s].name ? ' - ' + specs[s].name : '');
+      select.appendChild(opt);
+    }
+  } catch (err) {
+    console.error('Failed to load specs:', err);
+    select.innerHTML = '';
+    for (const o of fallbackOptions) {
+      const opt = document.createElement('option');
+      opt.value = o.value;
+      opt.textContent = o.text;
+      select.appendChild(opt);
+    }
+    document.getElementById('error').innerText =
+  'No se pudieron cargar los símbolos (usando lista por defecto): ' + (err.message || String(err));
+  }
+});
+</script>
+</body>
+</html>
