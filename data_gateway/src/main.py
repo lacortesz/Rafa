@@ -26,11 +26,11 @@ producer = Producer(producer_conf)
 init_kafka_producer(KAFKA_BOOTSTRAP)
 
 
-if producer is None:
-    print("Failed to initialize Kafka producer. Exiting.")
-    exit(1)
-else:
-    print(f"Kafka producer initialized (bootstrap={KAFKA_BOOTSTRAP}) {producer}")
+#if producer is None:
+#    print("Failed to initialize Kafka producer. Exiting.")
+#    exit(1)
+#else:
+#    print(f"Kafka producer initialized (bootstrap={KAFKA_BOOTSTRAP}) {producer}")
 
 #--- FUNCIONES
 ## WEBSOCKET FUNCTIONS
