@@ -23,6 +23,8 @@ KAFKA_BOOTSTRAP = "localhost:9092"
 KAFKA_TOPIC = "data_gateway"
 producer_conf = {"bootstrap.servers": KAFKA_BOOTSTRAP}
 producer = Producer(producer_conf)
+init_kafka_producer(KAFKA_BOOTSTRAP)
+
 
 if producer is None:
     print("Failed to initialize Kafka producer. Exiting.")
