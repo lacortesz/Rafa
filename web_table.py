@@ -4,6 +4,9 @@ import pandas as pd
 from urllib.parse import quote_plus, unquote_plus
 import utils.utils3 as utils3
 import plotly.io as pio
+import plotly.graph_objects as go
+import tempfile
+import webbrowser
 
 app = Flask(__name__)
 
@@ -201,20 +204,7 @@ def chart():
     except Exception as e:
         return f"Error loading CSV: {e}<br><a href='/'>Volver</a>"
 
-    # crear figura plotly (rápido y sin abrir interfaz gráfica)
-    import plotly.graph_objects as go
-    fig = go.Figure(data=[go.Candlestick(
-        x=df["datetime"],
-        open=df["open"],
-        high=df["high"],
-        low=df["low"],
-        close=df["close"],
-        name=symbol
-    )])
-    fig.update_layout(title=f"{symbol} - {timeframe}", xaxis_title="Datetime", yaxis_title="Price", xaxis_rangeslider_visible=False, template="plotly_white")
-    fig_html = fig.to_html(full_html=False, include_plotlyjs='cdn')
-
-    return render_template_string(CHART_TEMPLATE, symbol=symbol, timeframe=timeframe, fig_html=fig_html)
+    graficar_pivots(df, symbol)
 
 @app.route("/download")
 def download():
@@ -222,6 +212,79 @@ def download():
     if os.path.exists(path):
         return send_file(path, as_attachment=True)
     return "info.csv not found", 404
+
+def graficar_pivots(df, symbol="Activo"):
+
+    # Forzar renderer a browser para mayor fiabilidad
+    pio.renderers.default = "browser"
+
+    # Copia y limpieza de datos OHLC
+    data = df.copy()
+    data.index = pd.to_datetime(data.index)
+    for c in ['open', 'high', 'low', 'close']:
+        data[c] = pd.to_numeric(data[c], errors='coerce')
+    data = data.dropna(subset=['open', 'high', 'low', 'close'])
+    if data.empty:
+        print("No hay datos OHLC completos para graficar.")
+        return
+
+    fig = go.Figure(data=[go.Candlestick(
+        x=data.index,
+        open=data['open'],
+        high=data['high'],
+        low=data['low'],
+        close=data['close'],
+        name='Precio'
+    )])
+
+    # Pivots High
+    df_highs = data.loc[df.index[df['pivot_high']]] if 'pivot_high' in df.columns else data.iloc[0:0]
+    if not df_highs.empty:
+        fig.add_trace(go.Scatter(
+            x=df_highs.index,
+            y=df_highs['high'],
+            mode='markers+text',
+            marker=dict(color='red', size=10),
+            text=df_highs.get('pivot_label', None),
+            textposition='top center',
+            name='Pivots High'
+        ))
+
+    # Pivots Low
+    df_lows = data.loc[df.index[df['pivot_low']]] if 'pivot_low' in df.columns else data.iloc[0:0]
+    if not df_lows.empty:
+        fig.add_trace(go.Scatter(
+            x=df_lows.index,
+            y=df_lows['low'],
+            mode='markers+text',
+            marker=dict(color='green', size=10),
+            text=df_lows.get('pivot_label', None),
+            textposition='bottom center',
+            name='Pivots Low'
+        ))
+
+    fig.update_layout(
+        title=f"Pivots - {symbol}",
+        yaxis_title='Precio',
+        xaxis_title='Fecha',
+        template='plotly_white',
+        width=1200,
+        height=700,
+        xaxis_rangeslider_visible=False,
+        xaxis_type='category',
+        legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5)
+    )
+
+    # Mostrar; si falla, guardar HTML y abrir en navegador
+    try:
+        fig.show()
+    except Exception:
+        tmp = os.path.join(tempfile.gettempdir(), f"pivots_{symbol}.html")
+        fig.write_html(tmp, auto_open=True)
+        try:
+            webbrowser.open(f"file://{tmp}")
+        except Exception:
+            print(f"Gráfica guardada en: {tmp}")
 
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=5000, debug=False)

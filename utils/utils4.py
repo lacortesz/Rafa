@@ -67,15 +67,15 @@ def get_pivots(df, pivotStrength=2):
         is_pivot_low = True
 
         #Guarda el high y low de la vela actual
-        current_high = df['High'].iloc[i]
-        current_low = df['Low'].iloc[i]
+        current_high = df['high'].iloc[i]
+        current_low = df['low'].iloc[i]
 
         #Recorre el rango pivotStrength velas antes y después de la vela actual
         for j in range(1, pivotStrength):
-            if df['High'].iloc[i - j] >= current_high or df['High'].iloc[i + j] >= current_high: # 
+            if df['high'].iloc[i - j] >= current_high or df['high'].iloc[i + j] >= current_high: # 
                 #Cambia la bandera a false si encuentra un high mayor o igual en las velas anteriores o posteriores
                 is_pivot_high = False
-            if df['Low'].iloc[i - j] <= current_low or df['Low'].iloc[i + j] <= current_low:
+            if df['low'].iloc[i - j] <= current_low or df['low'].iloc[i + j] <= current_low:
                 #Cambia la bandera a false si encuentra un low menor o igual en las velas anteriores o posteriores
                 is_pivot_low = False
             
@@ -112,26 +112,23 @@ def classify_pivots(pivots):
     retorna:
         lista de pivots clasificados como diccionarios {'type': 'H' o 'L', 'type2': 'HH', 'HL', 'LH', 'LL', 'index': index del DataFrame, 'value': valor del pivot}
     """
+    if not pivots:
+        return pivots
+
+    # Inicializar type2 en todos los pivotes para evitar KeyError
+    for p in pivots:
+        p.setdefault('type2', None)
+
     for i in range(2, len(pivots)):
         current = pivots[i]
         previous = pivots[i - 2]
 
         if current['type'] == 'H' and previous['type'] == 'H':
-            if current['value'] > previous['value']:
-                current['type2'] = 'HH'
-            else:
-                current['type2'] = 'LH'
+            current['type2'] = 'HH' if current['value'] > previous['value'] else 'LH'
         elif current['type'] == 'L' and previous['type'] == 'L':
-            if current['value'] > previous['value']:
-                current['type2'] = 'HL'
-            else:
-                current['type2'] = 'LL'
-
-    df_pivots = pd.DataFrame(pivots)    
-    print(df_pivots.tail(10))
+            current['type2'] = 'HL' if current['value'] > previous['value'] else 'LL'
 
     return pivots
-
    
 def identify_trend(df, pivots, trendStrength=3):
     """
@@ -147,48 +144,24 @@ def identify_trend(df, pivots, trendStrength=3):
     retorna:
         'bullish', 'bearish' o 'flat'
     """
-    # si el numero de pivots es menor que trendStrength, retornar 'flat'. No hay suficiente info
-    if len(pivots) < trendStrength:
+    # Considerar solo pivotes con 'type2' definido
+    classified = [p for p in pivots if p.get('type2') is not None]
+    if len(classified) < trendStrength:
         return "flat"
-    
-    # Obtener los últimos n pivots
-    last_pivots = pivots[-trendStrength:]
-    
-    #validar secuencia bullish
-    is_bullish = True
-    for pivot in last_pivots:
-        if pivot['type2'] not in ['HH', 'HL']:
-            is_bullish = False
-            break
-    if is_bullish:
-        # Buscar el último pivot con clasificación 'HL' entre los últimos pivotes. Se recorre en orden inverso (del más reciente al más antiguo) y se toma el primer pivot que cumpla la condición; si no hay ninguno, devuelve None.
-        last_HL = next((p for p in reversed(last_pivots) if p['type2'] == 'HL'), None)
-        if last_HL:
-            # Toma la serie de mínimos ('low') desde la fila del pivot hasta el final.
-            subsequent_lows = df.loc[last_HL['index']:]['Low'].iloc[1:]
 
-            # Verifica que TODOS los mínimos posteriores sean estrictamente mayores que el valor del pivot. 
+    last_pivots = classified[-trendStrength:]
+    if all(p.get('type2') in ['HH', 'HL'] for p in last_pivots):
+        last_HL = next((p for p in reversed(last_pivots) if p.get('type2') == 'HL'), None)
+        if last_HL:
+            subsequent_lows = df.loc[last_HL['index']:]['low'].iloc[1:]
             if all(subsequent_lows >= last_HL['value']):
-                # Si la condición se cumple, devuelve 'bullish'.
                 return "bullish"
 
-    #validar secuencia bearish
-    is_bearish = True
-    for pivot in last_pivots:
-        if pivot['type2'] not in ['LL', 'LH']:
-            is_bearish = False
-            break       
-    if is_bearish:
-        # Buscar el último pivot con clasificación 'LH' entre los últimos pivotes. Se recorre en orden inverso (del más reciente al más antiguo) y se toma el primer pivot que cumpla la condición; si no hay ninguno, devuelve None.
-        last_LH = next((p for p in reversed(last_pivots) if p['type2'] == 'LH'), None)
+    if all(p.get('type2') in ['LL', 'LH'] for p in last_pivots):
+        last_LH = next((p for p in reversed(last_pivots) if p.get('type2') == 'LH'), None)
         if last_LH:
-            # Toma la serie de máximos ('high') desde la fila del pivot hasta el final.
-            subsequent_highs = df.loc[last_LH['index']:]['High'].iloc[1:]
-
-            # Verifica que TODOS los máximos posteriores sean estrictamente menores que el valor del pivot. 
+            subsequent_highs = df.loc[last_LH['index']:]['high'].iloc[1:]
             if all(subsequent_highs <= last_LH['value']):
-                # Si la condición se cumple, devuelve 'bearish'.
-                return "bearish"    
-    
-    # Si ninguna de las condiciones anteriores se cumple, devuelve 'flat'.
+                return "bearish"
+
     return "flat"

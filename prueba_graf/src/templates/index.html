@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Tabla interactiva</title>
+
+    <style>
+        table {
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th, td {
+            border: 1px solid #ccc;
+            padding: 10px 16px;
+            text-align: center;
+        }
+
+        td.clickable {
+            cursor: pointer;
+            color: blue;
+            font-weight: bold;
+        }
+
+        td.clickable:hover {
+            background-color: #f0f0f0;
+            color: darkblue;
+        }
+    </style>
+</head>
+<body>
+
+<h3>Selecciona instrumento y timeframe</h3>
+
+<table>
+    <thead>
+        <tr>
+            <th></th>
+            <th>1d</th>
+            <th>4h</th>
+            <th>1h</th>
+            <th>15m</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <th>6A</th>
+            <td class="clickable" onclick="enviar('6A','1d')">✔</td>
+            <td class="clickable" onclick="enviar('6A','4h')">✔</td>
+            <td class="clickable" onclick="enviar('6A','1m')">✔</td>
+            <td class="clickable" onclick="enviar('6A','15m')">✔</td>
+        </tr>
+        <tr>
+            <th>6B</th>
+            <td class="clickable" onclick="enviar('6B','1d')">✔</td>
+            <td class="clickable" onclick="enviar('6B','4h')">✔</td>
+            <td class="clickable" onclick="enviar('6B','1h')">✔</td>
+            <td class="clickable" onclick="enviar('6B','15m')">✔</td>
+        </tr>
+    </tbody>
+</table>
+
+<p id="resultado"></p>
+
+<script>
+function enviar(fila, columna) {
+    const valor = `${fila}_${columna}`;
+
+    fetch("/seleccionar", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ valor: valor })
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById("resultado").innerText = data.resultado;
+    });
+}
+</script>
+
+</body>
+</html>

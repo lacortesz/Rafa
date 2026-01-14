@@ -1,5 +1,6 @@
 from confluent_kafka import Producer, Consumer, KafkaException
 from utility.utility import init_kafka_producer, send_result as send_result_blocking
+import utility.utility as utility
 import json
 
 ## Kafka configuration (can be overridden via environment variables)
@@ -38,6 +39,7 @@ try:
         print(f"Mensaje recibido en {topic}: {payload}")
 
         # Aquí podrías agregar lógica adicional para procesar el mensaje    
+        utility.process_file(payload)
 
 except KeyboardInterrupt:
     print("Interrupción por teclado recibida. Saliendo...")

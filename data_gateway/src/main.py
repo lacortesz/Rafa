@@ -80,7 +80,8 @@ async def worker(worker_id: int):
             message_queue.task_done()
 
         try:
-            await send_result({"Result": "Data saved", "details": summary})
+            #await send_result({"Result": "Data saved", "details": summary})
+            await send_result(summary)
             print(f"[Worker {worker_id}] Sending result to Kafka: OK")
 
         except Exception as e:
