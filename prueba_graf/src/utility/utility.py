@@ -12,6 +12,10 @@ import os
 import ta
 import empyrical as ep
 from pathlib import Path
+import threading
+import utility.parameters as parameters
+from sqlalchemy import create_engine, text
+
 
 def download_data(ticker, start, end, interval):
     
@@ -342,7 +346,7 @@ def identificar_soportes_resistencias(df, window=10, tolerance=0.005, top_n=2):
             raise ValueError(f"Falta la columna requerida '{col}'")
         data[col] = pd.to_numeric(data[col].astype(str).str.replace(",", "."), errors="coerce")
 
-    data = data.dropna(subset=['high','low','close'])
+    #data = data.dropna(subset=['high','low','close'])
     if data.empty:
         return [], []
 
@@ -436,7 +440,7 @@ def adicionar_indicadores(df):
     #df['IsMinLowOfDay'] = (df['low'] == min_low_per_day).astype(int)
    
     # Delete rows con NaN
-    df = df.dropna()
+    #df = df.dropna()
     return df
 
 def buscar_smas_optimizados(data):
@@ -510,7 +514,7 @@ def graficar_pivots(df, symbol="Activo"):
     data.index = pd.to_datetime(data.index)
     for c in ['open', 'high', 'low', 'close']:
         data[c] = pd.to_numeric(data[c], errors='coerce')
-    data = data.dropna(subset=['open', 'high', 'low', 'close'])
+    #data = data.dropna(subset=['open', 'high', 'low', 'close'])
     if data.empty:
         print("No hay datos OHLC completos para graficar.")
         return
@@ -635,7 +639,7 @@ def graficar_pivots_soportes_resistencias_2(df, soportes, resistencias, symbol="
     """
     data = df.copy()
     data.index = pd.to_datetime(data.index)
-    data = data.dropna(subset=['open','high','low','close'])
+    #data = data.dropna(subset=['open','high','low','close'])
     if data.empty:
         print("No hay datos OHLC completos para graficar.")
         return
@@ -934,7 +938,7 @@ def normalize_data_types(df):
     for col in ['open', 'high', 'low', 'close', 'volume']:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(",", "."), errors='coerce')
-    df = df.dropna(subset=['open', 'high', 'low', 'close'])
+    #df = df.dropna(subset=['open', 'high', 'low', 'close'])
     return df
 
 def graficar(symbol_timeframe):
@@ -966,4 +970,64 @@ def graficar(symbol_timeframe):
     #print(df_pivots.tail(10))
 
     #utility.graficar_pivots_soportes_resistencias(df, df_pivots, soportes, resistencias, "6A", tendencia, rsi, name="6A", timeframe="15m")
-    graficar_pivots_soportes_resistencias_2(df, soportes, resistencias, symbol, tendencia, rsi, name="6A", timeframe=timeframe)
+    #graficar_pivots_soportes_resistencias_2(df, soportes, resistencias, symbol, tendencia, rsi, name="6A", timeframe=timeframe)
+
+    save_bars_csv(symbol, timeframe, df)
+
+    #--- actualizar archivo
+_FILE_SAVE_LOCK = threading.Lock()
+
+def save_bars_csv(symbol, timeframe, df, out_dir=None):
+
+    #df = bars_to_df(df)       
+    if out_dir is None:
+        out_dir = os.path.join(parameters.OUT_DIR)
+    os.makedirs(out_dir, exist_ok=True)
+
+    filename = f"{symbol}_{timeframe}.csv"
+    out_path = os.path.join(out_dir, filename)
+
+    with _FILE_SAVE_LOCK:
+        df.to_csv(out_path, index=True)
+        
+def bars_to_df(bars):
+    """Normaliza 'bars' (lista de dicts o dict de listas) a DataFrame con columna 'datetime'."""
+    if isinstance(bars, dict):
+        df = pd.DataFrame(bars)
+    else:
+        df = pd.DataFrame(bars)
+
+    datetime_cols = [c for c in df.columns if c.lower() in ("datetime", "time", "timestamp", "date")]
+    if datetime_cols:
+        dt_col = datetime_cols[0]
+        df[dt_col] = pd.to_datetime(df[dt_col], errors="coerce")
+        if dt_col != "datetime":
+            df = df.rename(columns={dt_col: "datetime"})
+    else:
+        df["datetime"] = pd.NaT
+
+    return df
+##---- db functions
+
+def write_db(symbol, timeframe, trend, rsi, soportes, resistencias):
+    engine = create_engine(
+    "postgresql+psycopg2://admin:admin123@localhost:5432/trading_db"
+    )
+
+    with engine.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO info (simbolo, timeframe, tendencia, rsi, soportes, resistencias)
+            VALUES (:s, :t, :td, :r, :sp, :rs )
+            ON CONFLICT (simbolo, timeframe)
+            DO UPDATE SET
+                tendencia = EXCLUDED.tendencia,
+                rsi = EXCLUDED.rsi,
+                ts = CURRENT_TIMESTAMP,
+                soportes = EXCLUDED.soportes,
+                resistencias = EXCLUDED.resistencias;
+        """), 
+        {"s": symbol, "t": timeframe, "td": trend, "r":rsi, "sp": soportes, "rs": resistencias})
+
+
+
+

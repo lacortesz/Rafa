@@ -7,12 +7,17 @@ import numpy as np
 import utility.parameters as parameters
 import plotly.graph_objects as go
 import tempfile
+import ta
+import threading
+from sqlalchemy import create_engine, text
+
 
 try:
     from confluent_kafka import Producer    
 except Exception:
     Producer = None
 
+producer = None
 
 ##----- kafka functions
 def init_kafka_producer(bootstrap_servers=None):
@@ -29,7 +34,13 @@ def init_kafka_producer(bootstrap_servers=None):
 
     bs = bootstrap_servers or os.getenv("KAFKA_BOOTSTRAP", "localhost:8003")
     try:
-        conf = {"bootstrap.servers": bs}
+        conf = {"bootstrap.servers": bs,
+                "client.id": "process-data-producer",
+                "acks": "all",                # asegura confirmación del broker
+                "retries": 3,                 # reintentos automáticos
+                "linger.ms": 5,               # agrupa mensajes para eficiencia
+                "delivery.timeout.ms": 30000  # timeout total
+                }
         producer = Producer(conf)
         print(f"Kafka producer initialized (bootstrap={bs})")
         return producer
@@ -67,6 +78,16 @@ def send_result(result, topic=None):
     t = topic or os.getenv("KAFKA_TOPIC_DATA_GATEWAY", "data_gateway")
     publish_to_kafka(result, t)
 
+def message_json(payload):
+    symbol, timeframe = get_symbol_timeframe(payload)
+    
+    data = {
+    "accion": "archivo procesado",
+    "symbol_timeframe": f"{symbol}_{timeframe}"
+    }
+
+    return json.dumps(data)
+
 
 ##----- data processing functions
 def process_file(payload):
@@ -97,16 +118,18 @@ def process_file(payload):
 
     #4. Add indicators
     soportes, resistencias = identificar_soportes_resistencias(df, window = 10, tolerance=0.005, top_n=5)
-    
-    rsi = calcular_rsi(df['close'], period=14)
+    df = adicionar_indicadores(df)
+    rsi = float(df['RSI_14'].iloc[-1].round(2))
 
-    adicionar_indicadores(df)
+    df = df.sort_index().tail(80)
 
-    #graficar_pivots_soportes_resistencias_2(df, soportes, resistencias, symbol, tendencia, rsi, name="6A", timeframe=timeframe)
+    #graficar_pivots_soportes_resistencias(df, soportes, resistencias, symbol, tendencia, rsi, name="", timeframe=timeframe)
 
     #4. storege data (csv file or BD) for each symbol and timeframe 
 
+    save_bars_csv(symbol, timeframe, df)
 
+    write_db(symbol, timeframe, tendencia, rsi, soportes, resistencias)
 
 
 ##----- process data function
@@ -378,7 +401,7 @@ def adicionar_indicadores(df):
     
     #df['EMA_10'] = df['close'].ewm(span=10, adjust=False).mean()
     
-    #df['RSI_14'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
+    df['RSI_14'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
     #df['RSI_14_DIFF'] = df['RSI_14'] - df['RSI_14'].shift(1)
     
     #df['Low_prev1'] = df['low'].shift(1)
@@ -563,3 +586,42 @@ def graficar_pivots_soportes_resistencias(df, soportes, resistencias, symbol="Ac
     except Exception:
         tmp = os.path.join(tempfile.gettempdir(), f"pivots_soportes_resistencias_{symbol}.html")
         fig.write_html(tmp, auto_open=True)
+
+##--- Database
+
+def write_db(symbol, timeframe, trend, rsi, soportes, resistencias):
+    engine = create_engine(
+    "postgresql+psycopg2://admin:admin123@localhost:5432/trading_db"
+    )
+
+    with engine.begin() as conn:
+        conn.execute(text("""
+            INSERT INTO info (simbolo, timeframe, tendencia, rsi, soportes, resistencias)
+            VALUES (:s, :t, :td, :r, :sp, :rs )
+            ON CONFLICT (simbolo, timeframe)
+            DO UPDATE SET
+                tendencia = EXCLUDED.tendencia,
+                rsi = EXCLUDED.rsi,
+                ts = CURRENT_TIMESTAMP,
+                soportes = EXCLUDED.soportes,
+                resistencias = EXCLUDED.resistencias;
+        """), 
+        {"s": symbol, "t": timeframe, "td": trend, "r":rsi, "sp": soportes, "rs": resistencias})
+
+
+##--- write file
+
+_FILE_SAVE_LOCK = threading.Lock()
+
+def save_bars_csv(symbol, timeframe, df, out_dir=None):
+
+    #df = bars_to_df(df)       
+    if out_dir is None:
+        out_dir = os.path.join(parameters.OUT_DIR_2)
+    os.makedirs(out_dir, exist_ok=True)
+
+    filename = f"{symbol}_{timeframe}.csv"
+    out_path = os.path.join(out_dir, filename)
+
+    with _FILE_SAVE_LOCK:
+        df.to_csv(out_path, index=True)

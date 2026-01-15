@@ -21,6 +21,8 @@ consumer_conf = {
 consumer = Consumer(consumer_conf)
 consumer.subscribe([KAFKA_TOPIC])
 
+utility.init_kafka_producer(KAFKA_BOOTSTRAP)
+
 print("🟢 Consumer iniciado. Esperando mensajes...")
 
 try:
@@ -38,8 +40,13 @@ try:
         payload = json.loads(msg.value().decode("utf-8"))
         print(f"Mensaje recibido en {topic}: {payload}")
 
-        # Aquí podrías agregar lógica adicional para procesar el mensaje    
+        # procesa e archivo. identifica tendencia, soportes y resistencia y almacena archivo csv actualizado y resumen en db
         utility.process_file(payload)
+
+        # Confirmar actualziacion al orchestator
+        message = utility.message_json(payload)
+        utility.send_result(message, "process_data")
+
 
 except KeyboardInterrupt:
     print("Interrupción por teclado recibida. Saliendo...")
