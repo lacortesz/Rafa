@@ -5,6 +5,7 @@ from urllib.parse import quote_plus, unquote_plus
 #import utils.utils3 as utils3  # Ajusta si es necesario
 import utility.utils3 as utils3
 import utility.utility as utils
+import utility.utility2 as utils2
 import plotly.io as pio
 import plotly.graph_objects as go
 import tempfile
@@ -19,6 +20,7 @@ import time
 
 app = Flask(__name__)
 socketio = SocketIO(app)
+
 
 
 HTML_TEMPLATE = """
@@ -138,10 +140,16 @@ def index():
                 if c == 'rsi':
                     cell_val = final_df.loc[sym, c]
                     display_html = f"{cell_val:.2f}" if not pd.isna(cell_val) and cell_val != '' else ''
+                    html.append(f'<td>{display_html}</td>')
                 else:
                     cell_val = final_df.loc[sym, c]
                     display_html = _colorize_trend(cell_val)
-                html.append(f'<td>{display_html}</td>')
+                    # Agregar enlace a la gráfica
+                    sym_q = quote_plus(str(sym))
+                    tf_q = quote_plus(str(c))
+                    link = f'/chart?symbol={sym_q}&timeframe={tf_q}'
+                    cell_html = f'<a class="cell-link" href="{link}" target="_blank">{display_html or "–"}</a>'
+                    html.append(f'<td>{cell_html}</td>')
             html.append('</tr>')
         html.append('</tbody></table>')
         table_html = "\n".join(html)
@@ -149,6 +157,7 @@ def index():
         return render_template_string(HTML_TEMPLATE, table_html=table_html, path="Database: trading_db.info")
     except Exception as e:
         return render_template_string(HTML_TEMPLATE, table_html=f"<p>Error conectando a la base de datos: {e}</p>", path="Database")
+
     
 @app.route("/tendencias")
 def tendencias():
@@ -203,15 +212,19 @@ def chart():
     # unquote in case values were encoded twice
     symbol = unquote_plus(symbol)
     timeframe = unquote_plus(timeframe)
+    out_dir = os.path.join(r"C:\repo_luis\Rafa\received_data")
 
     try:
-        df = utils3.load_bars_csv(symbol, timeframe, out_dir=os.path.join(os.getcwd(), "received_data"))
+        df = utils3.load_bars_csv(symbol, timeframe, out_dir=out_dir)
     except FileNotFoundError:
         return f"CSV not found for {symbol} {timeframe}. Expected file: received_data/{symbol}_{timeframe}.csv<br><a href='/'>Volver</a>"
     except Exception as e:
         return f"Error loading CSV: {e}<br><a href='/'>Volver</a>"
 
-    graficar_pivots(df, symbol)
+    fig_html = graficar_pivots(df, symbol)
+    #fig_html = utils2.graficar_pivots_soportes_resistencias(df, ,,)
+    return render_template_string(CHART_TEMPLATE, fig_html=fig_html, symbol=symbol, timeframe=timeframe)
+
 
 @app.route("/download")
 def download():
@@ -252,10 +265,6 @@ def kafka_consumer():
 threading.Thread(target=kafka_consumer, daemon=True).start()
 
 def graficar_pivots(df, symbol="Activo"):
-
-    # Forzar renderer a browser para mayor fiabilidad
-    pio.renderers.default = "browser"
-
     # Copia y limpieza de datos OHLC
     data = df.copy()
     data.index = pd.to_datetime(data.index)
@@ -263,8 +272,7 @@ def graficar_pivots(df, symbol="Activo"):
         data[c] = pd.to_numeric(data[c], errors='coerce')
     data = data.dropna(subset=['open', 'high', 'low', 'close'])
     if data.empty:
-        print("No hay datos OHLC completos para graficar.")
-        return
+        return "<p>No hay datos OHLC completos para graficar.</p>"
 
     fig = go.Figure(data=[go.Candlestick(
         x=data.index,
@@ -313,19 +321,11 @@ def graficar_pivots(df, symbol="Activo"):
         legend=dict(orientation="h", yanchor="bottom", y=-0.25, xanchor="center", x=0.5)
     )
 
-    # Mostrar; si falla, guardar HTML y abrir en navegador
-    try:
-        fig.show()
-    except Exception:
-        tmp = os.path.join(tempfile.gettempdir(), f"pivots_{symbol}.html")
-        fig.write_html(tmp, auto_open=True)
-        try:
-            webbrowser.open(f"file://{tmp}")
-        except Exception:
-            print(f"Gráfica guardada en: {tmp}")
+    # Retornar HTML de la figura para la web
+    return fig.to_html(full_html=False, include_plotlyjs='cdn')
 
 
 
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=5000, debug=False)
