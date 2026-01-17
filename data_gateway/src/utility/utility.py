@@ -32,7 +32,7 @@ def save_bars_csv(payload, out_dir=None):
     out_path = os.path.join(out_dir, filename)
 
     with _FILE_SAVE_LOCK:
-        if os.path.exists(out_path):
+        """if os.path.exists(out_path):
             try:
                 df_existing = pd.read_csv(out_path, parse_dates=["datetime"], dayfirst=False)
             except Exception:
@@ -45,9 +45,9 @@ def save_bars_csv(payload, out_dir=None):
                 df_combined = df_combined.drop_duplicates().reset_index(drop=True)
             df_combined.to_csv(out_path, index=False)
             stored_rows = len(df_combined)
-        else:
-            df.to_csv(out_path, index=False)
-            stored_rows = len(df)
+        else:"""
+        df.to_csv(out_path, index=False)
+        stored_rows = len(df)
 
     return {"symbol": symbol, "timeframe": timeframe, "received_rows": len(df), "stored_rows": stored_rows, "file": out_path}
 

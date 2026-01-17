@@ -91,6 +91,11 @@ def message_json(payload):
 
 ##----- data processing functions
 def process_file(payload):
+    """
+    Main data processing function.
+    param:
+    payload: dict with keys 'symbol' and 'timeframe'
+    """
     #0. inicialize variables
     df = {}
     
@@ -174,7 +179,7 @@ def normalize_data_types(df):
     for col in ['open', 'high', 'low', 'close', 'volume']:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col].astype(str).str.replace(",", "."), errors='coerce')
-    df = df.dropna(subset=['open', 'high', 'low', 'close'])
+    #df = df.dropna(subset=['open', 'high', 'low', 'close'])
     return df
 
 def identificar_pivots(df, n=2):
@@ -324,7 +329,7 @@ def identificar_soportes_resistencias(df, window=10, tolerance=0.005, top_n=2):
             raise ValueError(f"Falta la columna requerida '{col}'")
         data[col] = pd.to_numeric(data[col].astype(str).str.replace(",", "."), errors="coerce")
 
-    data = data.dropna(subset=['high','low','close'])
+    #data = data.dropna(subset=['high','low','close'])
     if data.empty:
         return [], []
 
@@ -417,7 +422,7 @@ def adicionar_indicadores(df):
     #df['IsMinLowOfDay'] = (df['low'] == min_low_per_day).astype(int)
    
     # Delete rows con NaN
-    df = df.dropna()
+    #df = df.dropna()
     return df
 
 def buscar_smas_optimizados(data):
@@ -446,7 +451,7 @@ def moving_average_crossover_profit(prices, fast_window, slow_window):
     df = pd.DataFrame({'price': prices})
     df['fast_sma'] = prices.rolling(window=fast_window).mean()
     df['slow_sma'] = prices.rolling(window=slow_window).mean()
-    df.dropna(inplace=True)
+    #df.dropna(inplace=True)
     
     df['signal'] = 0
     df.loc[df.fast_sma > df.slow_sma, 'signal'] = 1
@@ -487,7 +492,7 @@ def graficar_pivots_soportes_resistencias(df, soportes, resistencias, symbol="Ac
     """
     data = df.copy()
     data.index = pd.to_datetime(data.index)
-    data = data.dropna(subset=['open','high','low','close'])
+    #data = data.dropna(subset=['open','high','low','close'])
     if data.empty:
         print("No hay datos OHLC completos para graficar.")
         return
@@ -505,7 +510,7 @@ def graficar_pivots_soportes_resistencias(df, soportes, resistencias, symbol="Ac
     data_pivots.index = pd.to_datetime(data_pivots.index)
     for c in ['open', 'high', 'low', 'close']:
         data_pivots[c] = pd.to_numeric(data_pivots[c], errors='coerce')
-    data_pivots = data_pivots.dropna(subset=['open', 'high', 'low', 'close'])
+    #data_pivots = data_pivots.dropna(subset=['open', 'high', 'low', 'close'])
 
     #pivots high
     df_highs = data_pivots.loc[data_pivots.index[data_pivots['pivot_high']]] if 'pivot_high' in data_pivots.columns else data_pivots.iloc[0:0]
@@ -617,7 +622,9 @@ def save_bars_csv(symbol, timeframe, df, out_dir=None):
 
     #df = bars_to_df(df)       
     if out_dir is None:
-        out_dir = os.path.join(parameters.OUT_DIR_2)
+        #out_dir = os.path.join(parameters.OUT_DIR_2)
+        out_dir = os.path.join(parameters.OUT_DIR)
+
     os.makedirs(out_dir, exist_ok=True)
 
     filename = f"{symbol}_{timeframe}.csv"
