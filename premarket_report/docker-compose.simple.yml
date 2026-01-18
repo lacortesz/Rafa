@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  premarket-report:
+    env_file:
+      - .env
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: premarket-report
+    ports:
+      - "5000:5000"
+    environment:
+      - DATABASE_URL=postgresql+psycopg2://admin:admin123@host.docker.internal:5432/trading_db
+      - KAFKA_BOOTSTRAP=host.docker.internal:9092
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./received_data:/app/received_data
+      - ./src:/app/src
+    network_mode: bridge
+    restart: unless-stopped

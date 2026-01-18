@@ -64,9 +64,11 @@ def load_bars_csv(symbol, timeframe, out_dir=None):
     """
     if out_dir is None:
         #out_dir = os.path.join(parameters.OUT_DIR_2)
-        out_dir = os.path.join(parameters.OUT_DIR)
+        out_dir = os.path.join(out_dir)
     filename = f"{symbol}_{timeframe}.csv"
     path = os.path.join(out_dir, filename)
+    print(F"Loading CSV from {path}")
+
     if not os.path.exists(path):
         raise FileNotFoundError(f"File not found: {path}")
 

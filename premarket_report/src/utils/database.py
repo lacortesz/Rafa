@@ -3,12 +3,16 @@ import pandas as pd
 from sqlalchemy import create_engine, text
 from config import DATABASE_URL
 
+def get_engine():
+    """Get database engine."""
+    return create_engine(DATABASE_URL)
+
 def load_trend_data() -> pd.DataFrame:
     """
     Loads trend and RSI data from PostgreSQL.
     """
     
-    engine = create_engine(DATABASE_URL)
+    engine = get_engine()
 
     query = """
         SELECT simbolo, timeframe, tendencia, rsi
@@ -37,7 +41,7 @@ def load_chart_data(symbol: str, timeframe: str):
         dict with keys: tendencia, rsi, soportes, resistencias
     """
     
-    engine = create_engine(DATABASE_URL)
+    engine = get_engine()
 
     query = """
             SELECT tendencia, rsi, soportes, resistencias 

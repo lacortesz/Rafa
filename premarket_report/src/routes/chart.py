@@ -28,7 +28,7 @@ def chart():
     try:
         df = load_bars_csv(symbol, timeframe, out_dir=out_dir)
     except FileNotFoundError:
-        return f"CSV not found for {symbol} {timeframe}. Expected file: received_data/{symbol}_{timeframe}.csv<br><a href='/'>Volver</a>"
+        return f"CSV not found for {symbol} {timeframe}. Expected file: {out_dir}/{symbol}_{timeframe}.csv<br><a href='/'>Volver</a>"
     except Exception as e:
         return f"Error loading CSV: {e}<br><a href='/'>Volver</a>"
 

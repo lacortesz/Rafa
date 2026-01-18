@@ -118,7 +118,7 @@ def process_file(payload):
 
     #3. Get trend
     df = identificar_pivots(df, parameters.pivotStrength )
-    tendencia = determinar_tendencia(df,3)
+    tendencia = determinar_tendencia(df, 4)
     print(f"tendencia para  {symbol} - {timeframe} : {tendencia}")
 
     #4. Add indicators
@@ -273,40 +273,156 @@ def limpiar_pivots(df):
 
     return df
 
-def determinar_tendencia(df, n=3):
+def determinar_tendencia(df, n=4):
     """
-    Determina la tendencia basada en los últimos 3 pivots (H/L).
-    Reglas:
-      - Si últimos 3 pivots son: Low -> High -> Low mayor → Bullish
-      - Si últimos 3 pivots son: High -> Low -> High menor → Bearish
-      - En cualquier otro caso → Sin tendencia
+    Determina la tendencia basada en los últimos n pivots (H/L).
+    
+    Reglas generales:
+      - Para n pivots, verifica patrones alternantes H-L o L-H
+      - Bullish: Los pivots H deben ser crecientes Y los pivots L deben ser crecientes
+                 No debe haber valores de 'low' menores al último pivot L desde ese punto
+      - Bearish: Los pivots H deben ser decrecientes Y los pivots L deben ser decrecientes
+                 No debe haber valores de 'high' mayores al último pivot H desde ese punto
+      - En cualquier otro caso → flat
+    
+    Parámetros:
+        df: DataFrame con pivots identificados
+        n: Número de pivots a validar (debe ser >= 2)
+    
+    Retorna:
+        str: "bullish", "bearish", o "flat"
     """
+    if n < 2:
+        raise ValueError("n debe ser al menos 2")
+    
     pivots = df[df['pivot_label'].notnull()][['pivot_high', 'pivot_low', 'pivot_label', 'high', 'low']]
 
     if len(pivots) < n:
         return "flat"
 
-    last3 = pivots.tail(3)
+    last_n = pivots.tail(n)
 
     tipos = []
     valores = []
-    for _, row in last3.iterrows():
+    indices = []
+    
+    for idx, row in last_n.iterrows():
         if row['pivot_high']:
             tipos.append("H")
             valores.append(row['high'])
+            indices.append(idx)
         elif row['pivot_low']:
             tipos.append("L")
             valores.append(row['low'])
+            indices.append(idx)
 
-    if len(tipos) < 3:
+    if len(tipos) < n:
         return "flat"
 
-    if (tipos == ["L", "H", "L"] or tipos == ["H", "L", "H"]) and valores[2] > valores[0]:
+    # Verificar que el patrón sea alternante (H-L-H-L... o L-H-L-H...)
+    if not _es_patron_alternante(tipos):
+        return "flat"
+
+    # Separar valores de H y L
+    valores_h = [valores[i] for i in range(len(tipos)) if tipos[i] == "H"]
+    valores_l = [valores[i] for i in range(len(tipos)) if tipos[i] == "L"]
+    indices_h = [indices[i] for i in range(len(tipos)) if tipos[i] == "H"]
+    indices_l = [indices[i] for i in range(len(tipos)) if tipos[i] == "L"]
+
+    # Determinar si es bullish o bearish según la dirección de los pivots
+    h_crecientes = _es_secuencia_creciente(valores_h)
+    l_crecientes = _es_secuencia_creciente(valores_l)
+    h_decrecientes = _es_secuencia_decreciente(valores_h)
+    l_decrecientes = _es_secuencia_decreciente(valores_l)
+
+    # Bullish: tanto H como L son crecientes
+    if h_crecientes and l_crecientes:
+        # Validar que no haya lows menores al último pivot L
+        ultimo_pivot_l_idx = indices_l[-1]
+        ultimo_pivot_l_value = valores_l[-1]
+        
+        df_desde_ultimo_low = df.loc[ultimo_pivot_l_idx:]
+        
+        if (df_desde_ultimo_low['low'] < ultimo_pivot_l_value).any():
+            return "flat"
+        
         return "bullish"
-    elif (tipos == ["H", "L", "H"] or tipos == ["L", "H", "L"]) and valores[2] < valores[0]:
+    
+    # Bearish: tanto H como L son decrecientes
+    elif h_decrecientes and l_decrecientes:
+        # Validar que no haya highs mayores al último pivot H
+        ultimo_pivot_h_idx = indices_h[-1]
+        ultimo_pivot_h_value = valores_h[-1]
+        
+        df_desde_ultimo_high = df.loc[ultimo_pivot_h_idx:]
+        
+        if (df_desde_ultimo_high['high'] > ultimo_pivot_h_value).any():
+            return "flat"
+        
         return "bearish"
+    
     else:
         return "flat"
+
+
+def _es_patron_alternante(tipos):
+    """
+    Verifica si una lista de tipos ['H', 'L', 'H', 'L', ...] es alternante.
+    
+    Parámetros:
+        tipos: Lista de strings 'H' o 'L'
+    
+    Retorna:
+        bool: True si es alternante, False en caso contrario
+    """
+    if len(tipos) < 2:
+        return True
+    
+    for i in range(1, len(tipos)):
+        if tipos[i] == tipos[i-1]:
+            return False
+    
+    return True
+
+
+def _es_secuencia_creciente(valores):
+    """
+    Verifica si una secuencia de valores es estrictamente creciente.
+    
+    Parámetros:
+        valores: Lista de números
+    
+    Retorna:
+        bool: True si cada valor es mayor al anterior
+    """
+    if len(valores) < 2:
+        return True
+    
+    for i in range(1, len(valores)):
+        if valores[i] <= valores[i-1]:
+            return False
+    
+    return True
+
+
+def _es_secuencia_decreciente(valores):
+    """
+    Verifica si una secuencia de valores es estrictamente decreciente.
+    
+    Parámetros:
+        valores: Lista de números
+    
+    Retorna:
+        bool: True si cada valor es menor al anterior
+    """
+    if len(valores) < 2:
+        return True
+    
+    for i in range(1, len(valores)):
+        if valores[i] >= valores[i-1]:
+            return False
+    
+    return True
 
 def identificar_soportes_resistencias(df, window=10, tolerance=0.005, top_n=2):
     """
