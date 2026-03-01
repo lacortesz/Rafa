@@ -9,6 +9,8 @@ import plotly.graph_objects as go
 import tempfile
 import ta
 import threading
+import utility.market as market
+from utility.market import get_market_sentiment
 from sqlalchemy import create_engine, text
 
 
@@ -130,11 +132,16 @@ def process_file(payload):
 
     #graficar_pivots_soportes_resistencias(df, soportes, resistencias, symbol, tendencia, rsi, name="", timeframe=timeframe)
 
-    #4. storege data (csv file or BD) for each symbol and timeframe 
+    #5. Get market sentiment. Only for 240m timeframe
+    if timeframe == "240m":
+        market_sentiment = get_market_sentiment(symbol)
+    else:
+        market_sentiment = None
+
+    #. storege data (csv file or BD) for each symbol and timeframe 
 
     save_bars_csv(symbol, timeframe, df)
-
-    write_db(symbol, timeframe, tendencia, rsi, soportes, resistencias)
+    write_db(symbol, timeframe, tendencia, market_sentiment, rsi, soportes, resistencias)
 
 
 ##----- process data function
@@ -710,24 +717,113 @@ def graficar_pivots_soportes_resistencias(df, soportes, resistencias, symbol="Ac
 
 ##--- Database
 
-def write_db(symbol, timeframe, trend, rsi, soportes, resistencias):
+def write_db(symbol, timeframe, trend, market, rsi, soportes, resistencias):
     engine = create_engine(
     "postgresql+psycopg2://admin:admin123@localhost:5432/trading_db"
     )
 
     with engine.begin() as conn:
         conn.execute(text("""
-            INSERT INTO info (simbolo, timeframe, tendencia, rsi, soportes, resistencias)
-            VALUES (:s, :t, :td, :r, :sp, :rs )
-            ON CONFLICT (simbolo, timeframe)
-            DO UPDATE SET
-                tendencia = EXCLUDED.tendencia,
-                rsi = EXCLUDED.rsi,
-                ts = CURRENT_TIMESTAMP,
-                soportes = EXCLUDED.soportes,
-                resistencias = EXCLUDED.resistencias;
-        """), 
-        {"s": symbol, "t": timeframe, "td": trend, "r":rsi, "sp": soportes, "rs": resistencias})
+        INSERT INTO info (simbolo, timeframe, tendencia, rsi, soportes, resistencias, market)
+        VALUES (:simbolo, :timeframe, :tendencia, :rsi, :soportes, :resistencias, :market)
+        ON CONFLICT (simbolo, timeframe)
+        DO UPDATE SET
+            tendencia = EXCLUDED.tendencia,
+            rsi = EXCLUDED.rsi,
+            ts = CURRENT_TIMESTAMP,
+            soportes = EXCLUDED.soportes,
+            resistencias = EXCLUDED.resistencias,
+            market = EXCLUDED.market;
+        """),
+        {
+            "simbolo": symbol,
+            "timeframe": timeframe,
+            "tendencia": trend,
+            "rsi": rsi,
+            "soportes": soportes,
+            "resistencias": resistencias,
+            "market": market
+        })
+
+def check_alignment(symbol):
+    """
+    Consulta las tendencias de todos los timeframes de un símbolo y verifica si son iguales.
+    
+    Args:
+        symbol (str): Símbolo a consultar (ej: "ES", "NQ", "GC")
+    
+    Returns:
+        dict: {
+            "symbol": str,
+            "aligned": bool (True si todas las tendencias son iguales),
+            "trends": dict con timeframes como keys y tendencias como values,
+            "unique_trends": list de tendencias únicas encontradas
+        }
+    """
+    engine = create_engine(
+        "postgresql+psycopg2://admin:admin123@localhost:5432/trading_db"
+    )
+
+    query = text("""
+    SELECT timeframe, tendencia 
+    FROM info
+    WHERE simbolo = :simbolo
+    ORDER BY timeframe;
+    """)
+    
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(query, {"simbolo": symbol})
+            rows = result.fetchall()
+            
+            if not rows:
+                print(f"No se encontraron datos para el símbolo {symbol}")
+                return {
+                    "symbol": symbol,
+                    "aligned": False,
+                    "trends": {},
+                    "unique_trends": []
+                }
+            
+            # Crear diccionario con timeframe: tendencia
+            trends_dict = {row[0]: row[1] for row in rows}
+            
+            # Obtener tendencias únicas
+            unique_trends = list(set(trends_dict.values()))
+            
+            # Verificar si todas las tendencias son iguales
+            aligned = len(unique_trends) == 1
+            
+            result_data = {
+                "symbol": symbol,
+                "aligned": aligned,
+                "trends": trends_dict,
+                "unique_trends": unique_trends
+            }
+            
+            # Imprimir resultado
+            print(f"\n--- Análisis de alineación para {symbol} ---")
+            for tf, trend in trends_dict.items():
+                print(f"  {tf}: {trend}")
+            
+            if aligned:
+                print(f"✓ TODAS LAS TENDENCIAS ALINEADAS: {unique_trends[0]}")
+            else:
+                print(f"✗ TENDENCIAS NO ALINEADAS: {', '.join(unique_trends)}")
+            
+            return result_data
+            
+    except Exception as e:
+        print(f"Error al consultar tendencias para {symbol}: {e}")
+        return {
+            "symbol": symbol,
+            "aligned": False,
+            "trends": {},
+            "unique_trends": [],
+            "error": str(e)
+        }
+
+
 
 
 ##--- write file

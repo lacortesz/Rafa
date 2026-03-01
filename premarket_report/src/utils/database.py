@@ -15,7 +15,7 @@ def load_trend_data() -> pd.DataFrame:
     engine = get_engine()
 
     query = """
-        SELECT simbolo, timeframe, tendencia, rsi
+        SELECT simbolo, timeframe, tendencia, rsi, market
         FROM info
     """
 
@@ -28,7 +28,7 @@ def load_trend_data() -> pd.DataFrame:
 
     df = pd.DataFrame(
         rows,
-        columns=["simbolo", "timeframe", "tendencia", "rsi"]
+        columns=["simbolo", "timeframe", "tendencia", "rsi", "market"]
     )
 
     return df

@@ -25,12 +25,19 @@ def index():
         .fillna("")
     )
 
+    market_240m = (
+        df[df["timeframe"] == "240m"]
+        .set_index("simbolo")["market"]
+    )
+
     rsi_15m = (
         df[df["timeframe"] == "15m"]
         .set_index("simbolo")["rsi"]
     )
 
+    pivot["market"] = market_240m
     pivot["rsi"] = rsi_15m
+    
 
     pivot_html = build_trend_table_html(pivot)
 
